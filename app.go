@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"outline-reader/crypto"
 	"outline-reader/outline"
 	"outline-reader/storage"
 )
@@ -74,7 +75,8 @@ func (a *App) init() error {
 	a.setDB(db)
 	s, err := db.GetSettings()
 	if err == nil && s.APIURL != "" && s.APIKey != "" {
-		a.setClient(outline.NewClient(s.APIURL, s.APIKey))
+		decryptedKey := crypto.DecryptIfPossible(s.APIKey)
+		a.setClient(outline.NewClient(s.APIURL, decryptedKey))
 	}
 	log.Printf("[APP] started, db=%s, portable=%v", a.dbPath, a.portable)
 	return nil
@@ -181,7 +183,10 @@ func (a *App) GetSettings() (ConnectionSettings, error) {
 	if err != nil {
 		return ConnectionSettings{}, err
 	}
-	return ConnectionSettings{APIURL: s.APIURL, APIKey: s.APIKey}, nil
+	return ConnectionSettings{
+		APIURL: s.APIURL,
+		APIKey: crypto.DecryptIfPossible(s.APIKey),
+	}, nil
 }
 
 func (a *App) GetLastSyncTime() string {
@@ -208,7 +213,8 @@ func (a *App) SetConnection(apiURL, apiKey string) error {
 	if err := client.CheckAuth(); err != nil {
 		return fmt.Errorf("проверка подключения: %w", err)
 	}
-	if err := a.getDB().SaveSettings(&storage.Settings{APIURL: apiURL, APIKey: apiKey}); err != nil {
+	encryptedKey := crypto.EncryptIfPossible(apiKey)
+	if err := a.getDB().SaveSettings(&storage.Settings{APIURL: apiURL, APIKey: encryptedKey}); err != nil {
 		return err
 	}
 	a.setClient(client)
