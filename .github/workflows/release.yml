@@ -16,6 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -42,18 +43,23 @@ jobs:
         id: changelog
         shell: pwsh
         run: |
-          $tags = git tag --sort=-v:refname
           $current = "${{ github.ref_name }}"
-          $idx = [array]::IndexOf($tags, $current)
-
-          if ($idx -ge 0 -and $idx -lt $tags.Length - 1) {
-            $prev = $tags[$idx + 1]
-            $range = "$prev..$current"
-          } else {
+          
+          $allTags = @(git tag --sort=-v:refname 2>&1)
+          
+          if ($allTags.Count -le 1) {
             $range = $current
+          } else {
+            $idx = [array]::IndexOf($allTags, $current)
+            if ($idx -ge 0 -and $idx -lt ($allTags.Count - 1)) {
+              $prev = $allTags[$idx + 1]
+              $range = "$prev..$current"
+            } else {
+              $range = $current
+            }
           }
-
-          $log = git log $range --pretty=format:"* %s (%h)" --no-merges
+          
+          $log = git log $range --pretty=format:"* %s (%h)" --no-merges --
           $log | Out-File -FilePath CHANGELOG.md -Encoding utf8
           "changelog<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           $log              | Out-File -FilePath $env:GITHUB_OUTPUT -Append
