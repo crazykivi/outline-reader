@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -265,4 +266,30 @@ func TestSyncRemovesDeletedDocuments(t *testing.T) {
 	hits, err := a.SearchDocuments("child")
 	require.NoError(t, err)
 	assert.Empty(t, hits)
+}
+
+func TestPortableDataDirDetection(t *testing.T) {
+	base := t.TempDir()
+	assert.Empty(t, portableDataDir(base))
+
+	data := filepath.Join(base, "data")
+	require.NoError(t, os.Mkdir(data, 0o755))
+	assert.Equal(t, data, portableDataDir(base))
+
+	entries, err := os.ReadDir(data)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+
+	other := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(other, "data"), []byte("x"), 0o600))
+	assert.Empty(t, portableDataDir(other))
+}
+
+func TestStorageInfoReportsPaths(t *testing.T) {
+	a := newTestApp(t)
+	info, err := a.StorageInfo()
+	require.NoError(t, err)
+	assert.False(t, info.Portable)
+	assert.Equal(t, a.dbPath, info.DBPath)
+	assert.Equal(t, filepath.Dir(a.dbPath), info.DataDir)
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"log"
+	"path/filepath"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/logger"
@@ -14,7 +15,6 @@ import (
 //go:embed frontend/*
 var assets embed.FS
 
-// -X main.version=x.y.z
 var version = "dev"
 
 func main() {
@@ -24,7 +24,23 @@ func main() {
 		log.Printf("[APP] init: %v", err)
 	}
 
-	err := wails.Run(&options.App{
+	info, err := app.StorageInfo()
+	if err != nil {
+		log.Printf("[APP] storage info: %v", err)
+	}
+
+	winOpts := &windows.Options{
+		WebviewIsTransparent: false,
+		WindowIsTranslucent:  false,
+	}
+	uniqueID := "outline-reader-crazykivi-9f3a2b1c-d4e5f6"
+	if info.Portable {
+		winOpts.WebviewUserDataPath = filepath.Join(info.DataDir, "webview")
+		uniqueID = instanceID(info.DataDir)
+		log.Printf("[APP] portable mode, data=%s", info.DataDir)
+	}
+
+	err = wails.Run(&options.App{
 		Title:            "Outline Reader",
 		Width:            1200,
 		Height:           800,
@@ -39,13 +55,10 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
-		Logger: logger.NewDefaultLogger(),
-		Windows: &windows.Options{
-			WebviewIsTransparent: false,
-			WindowIsTranslucent:  false,
-		},
+		Logger:  logger.NewDefaultLogger(),
+		Windows: winOpts,
 		SingleInstanceLock: &options.SingleInstanceLock{
-			UniqueId: "outline-reader-crazykivi-9f3a2b1c-d4e5f6",
+			UniqueId: uniqueID,
 			OnSecondInstanceLaunch: func(data options.SecondInstanceData) {
 				log.Println("[APP] second instance detected, focusing existing window")
 			},

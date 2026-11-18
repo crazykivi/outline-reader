@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log"
 	"net/http"
@@ -19,14 +20,16 @@ import (
 const fullSyncInterval = time.Hour
 
 type App struct {
-	mu      sync.RWMutex
-	opMu    sync.Mutex
-	once    sync.Once
-	initErr error
-	db      *storage.DB
-	client  *outline.Client
-	dbPath  string
-	version string
+	mu       sync.RWMutex
+	opMu     sync.Mutex
+	once     sync.Once
+	initErr  error
+	db       *storage.DB
+	client   *outline.Client
+	dbPath   string
+	dataDir  string
+	portable bool
+	version  string
 }
 
 func NewApp() *App { return &App{} }
@@ -45,16 +48,24 @@ func (a *App) AppVersion() string {
 
 func (a *App) init() error {
 	if a.dbPath == "" {
-		dir, err := os.UserConfigDir()
-		if err != nil {
-			dir = "."
+		if dir := portableDataDir(exeDir()); dir != "" {
+			a.dataDir = dir
+			a.portable = true
+		} else {
+			base, err := os.UserConfigDir()
+			if err != nil {
+				base = "."
+			}
+			dir := filepath.Join(base, "OutlineReader")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				log.Printf("[APP] config dir: %v", err)
+				dir = "."
+			}
+			a.dataDir = dir
 		}
-		dir = filepath.Join(dir, "OutlineReader")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			log.Printf("[APP] config dir: %v", err)
-			dir = "."
-		}
-		a.dbPath = filepath.Join(dir, "cache.db")
+		a.dbPath = filepath.Join(a.dataDir, "cache.db")
+	} else {
+		a.dataDir = filepath.Dir(a.dbPath)
 	}
 	db, err := storage.NewDB(a.dbPath)
 	if err != nil {
@@ -65,13 +76,63 @@ func (a *App) init() error {
 	if err == nil && s.APIURL != "" && s.APIKey != "" {
 		a.setClient(outline.NewClient(s.APIURL, s.APIKey))
 	}
-	log.Printf("[APP] started, db=%s", a.dbPath)
+	log.Printf("[APP] started, db=%s, portable=%v", a.dbPath, a.portable)
 	return nil
 }
 
 func (a *App) startup(ctx context.Context) {
 	_ = a.ensure()
 	go a.syncLoop(ctx)
+}
+
+func exeDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	return filepath.Dir(exe)
+}
+
+func portableDataDir(base string) string {
+	if base == "" {
+		return ""
+	}
+	dir := filepath.Join(base, "data")
+	st, err := os.Stat(dir)
+	if err != nil || !st.IsDir() {
+		return ""
+	}
+	f, err := os.CreateTemp(dir, ".probe-*")
+	if err != nil {
+		log.Printf("[APP] portable dir is not writable, using user config: %v", err)
+		return ""
+	}
+	name := f.Name()
+	_ = f.Close()
+	_ = os.Remove(name)
+	return dir
+}
+
+func instanceID(dataDir string) string {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(strings.ToLower(filepath.Clean(dataDir))))
+	return fmt.Sprintf("outline-reader-%08x", h.Sum32())
+}
+
+type StorageInfo struct {
+	Portable bool   `json:"portable"`
+	DataDir  string `json:"dataDir"`
+	DBPath   string `json:"dbPath"`
+}
+
+func (a *App) StorageInfo() (StorageInfo, error) {
+	if err := a.ensure(); err != nil {
+		return StorageInfo{}, err
+	}
+	return StorageInfo{Portable: a.portable, DataDir: a.dataDir, DBPath: a.dbPath}, nil
 }
 
 func (a *App) syncLoop(ctx context.Context) {
