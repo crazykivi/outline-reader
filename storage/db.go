@@ -167,7 +167,7 @@ func ftsQuery(q string) string {
 	words := strings.Fields(q)
 	parts := make([]string, 0, len(words))
 	for _, w := range words {
-		parts = append(parts, "\""+strings.ReplaceAll(w, "\"", "\"\"")+"\"")
+		parts = append(parts, "\""+strings.ReplaceAll(w, "\"", "\"\"")+"\"*")
 	}
 	return strings.Join(parts, " ")
 }
@@ -186,15 +186,28 @@ func (d *DB) SearchDocuments(query string) ([]Document, error) {
 			Order("docs_fts.rank").
 			Limit(50).
 			Find(&out).Error
-		if err == nil {
+		if err == nil && len(out) > 0 {
 			return out, nil
 		}
-		log.Printf("[DB] fts search: %v", err)
+		if err != nil {
+			log.Printf("[DB] fts search: %v", err)
+		}
 	}
+	var all []Document
+	if err := d.db.Order("position").Find(&all).Error; err != nil {
+		return nil, err
+	}
+	q := strings.ToLower(query)
 	var out []Document
-	like := "%" + query + "%"
-	err := d.db.Where("title LIKE ? OR text LIKE ?", like, like).Limit(50).Find(&out).Error
-	return out, err
+	for _, doc := range all {
+		if strings.Contains(strings.ToLower(doc.Title), q) || strings.Contains(strings.ToLower(doc.Text), q) {
+			out = append(out, doc)
+			if len(out) >= 50 {
+				break
+			}
+		}
+	}
+	return out, nil
 }
 
 func (d *DB) SaveSettings(s *Settings) error {
