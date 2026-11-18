@@ -157,10 +157,19 @@ func (d *DB) GetDocumentByOutlineID(id string) (*Document, error) {
 
 func (d *DB) GetDocumentByURLID(urlID string) (*Document, error) {
 	var doc Document
-	if err := d.db.Where("url_id = ?", urlID).First(&doc).Error; err != nil {
-		return nil, err
+	if err := d.db.Where("outline_id = ?", urlID).First(&doc).Error; err == nil {
+		return &doc, nil
 	}
-	return &doc, nil
+	if err := d.db.Where("url_id = ?", urlID).First(&doc).Error; err == nil {
+		return &doc, nil
+	}
+	if err := d.db.Where("url = ?", "/doc/"+urlID).First(&doc).Error; err == nil {
+		return &doc, nil
+	}
+	if err := d.db.Where("url LIKE ?", "%/doc/"+urlID).First(&doc).Error; err == nil {
+		return &doc, nil
+	}
+	return nil, gorm.ErrRecordNotFound
 }
 
 func ftsQuery(q string) string {
