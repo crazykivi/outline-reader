@@ -1,0 +1,11 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "OutlineReader",
+  "outputfilename": "OutlineReader",
+  "frontend:install": "",
+  "frontend:build": "",
+  "wailsjsdir": "./frontend",
+  "author": {
+    "name": "User"
+  }
+}
