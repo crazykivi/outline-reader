@@ -25,7 +25,9 @@
 
     <div id="mainScreen" class="main-screen" style="display:none">
         <header class="header">
-            <img src="assets/logo.svg" alt="Outline Reader" class="logo-img">
+            <button id="backBtn" class="btn-icon" title="Назад (Alt+←)" disabled><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+            <button id="forwardBtn" class="btn-icon" title="Вперёд (Alt+→)" disabled><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
+            <button id="tocBtn" class="btn-icon" title="Оглавление" disabled><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M17,16 C17.5522847,16 18,16.4477153 18,17 C18,17.5522847 17.5522847,18 17,18 L7,18 C6.44771525,18 6,17.5522847 6,17 C6,16.4477153 6.44771525,16 7,16 L17,16 Z M17,11 C17.5522847,11 18,11.4477153 18,12 C18,12.5522847 17.5522847,13 17,13 L10,13 C9.44771525,13 9,12.5522847 9,12 C9,11.4477153 9.44771525,11 10,11 L17,11 Z M17,6 C17.5522847,6 18,6.44771525 18,7 C18,7.55228475 17.5522847,8 17,8 L7,8 C6.44771525,8 6,7.55228475 6,7 C6,6.44771525 6.44771525,6 7,6 L17,6 Z"/></svg></button>
             <div class="header-center">
                 <div class="search-box">
                     <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -36,7 +38,7 @@
             </div>
             <div class="header-right">
                 <span id="zoomIndicator" class="zoom-indicator" style="display:none"></span>
-                <button id="themeBtn" class="btn-icon" title="Переключить тему"></button>
+                 <button id="themeBtn" class="btn-icon" title="Переключить тему"></button>
                 <button id="menuBtn" class="btn-icon" title="Меню">
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" stroke="none">
                         <circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle>
@@ -109,7 +111,10 @@
                 <div id="docTree" class="doc-tree"></div>
             </aside>
             <div id="sidebarResizer" class="sidebar-resizer"></div>
-
+            <aside id="tocPanel" class="toc-panel" style="display:none">
+                <div class="toc-title">Оглавление</div>
+                <div id="tocContent"></div>
+            </aside>
             <div class="viewer-wrap">
                 <div id="findBar" class="find-bar" style="display:none">
                     <div class="find-input-wrap">

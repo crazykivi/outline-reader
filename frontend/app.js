@@ -9,11 +9,15 @@ const ICON_MOON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" s
 let collections = [];
 let index = {};
 let expanded = new Set();
+let history = [];
+let historyIndex = -1;
+let skipHistoryPush = false;
 let currentOID = null;
 let updateTimer = null;
 let searchTimer = null;
 let toastTimer = null;
 let fullWidth = localStorage.getItem("or.fullWidth") === "1";
+let tocOpen = localStorage.getItem("or.tocOpen") === "1";
 let fontScale = parseFloat(localStorage.getItem("or.fontScale") || "1");
 let lastTreeClick = { oid: null, time: 0 };
 let currentDocUrl = "";
@@ -165,6 +169,16 @@ function bindUI() {
     });
 
     document.addEventListener("keydown", (e) => {
+        if (e.altKey && e.code === "ArrowLeft") {
+            e.preventDefault();
+            goBack();
+            return;
+        }
+        if (e.altKey && e.code === "ArrowRight") {
+            e.preventDefault();
+            goForward();
+            return;
+        }
         if ((e.ctrlKey || e.metaKey) && e.code === "KeyK") {
             e.preventDefault(); $("searchInput").focus(); $("searchInput").select();
         }
@@ -219,6 +233,9 @@ function bindUI() {
     $("zoomIndicator").addEventListener("click", zoomReset);
     $("menuZoomReset").addEventListener("click", () => { closeMenu(); zoomReset(); });
     $("docContent").addEventListener("click", onContentClick);
+    $("backBtn").addEventListener("click", goBack);
+    $("forwardBtn").addEventListener("click", goForward);
+    $("tocBtn").addEventListener("click", () => applyTocOpen(!tocOpen));
 }
 
 /* ---------- Экраны / подключение ---------- */
@@ -321,11 +338,20 @@ async function doReset() {
         clearTimeout(searchTimer);
         await go().ResetApp();
 
-        ["or.expanded", "or.theme", "or.sideWidth", "or.fullWidth"].forEach((k) => localStorage.removeItem(k));
+        ["or.expanded", "or.theme", "or.sideWidth", "or.fullWidth", "or.fontScale", "or.tocOpen"].forEach((k) => localStorage.removeItem(k));
         expanded.clear();
         collections = [];
         index = {};
         currentOID = null;
+        history = [];
+        historyIndex = -1;
+        updateHistoryButtons();
+        $("tocPanel").style.display = "none";
+        $("tocContent").innerHTML = "";
+        $("tocBtn").disabled = true;
+        $("tocBtn").classList.remove("active");
+        $("lastSync").textContent = "";
+        $("lastSync").title = "";
         closeFindBar();
         $("searchInput").value = "";
         $("docViewer").style.display = "none";
@@ -337,6 +363,7 @@ async function doReset() {
         applyTheme("dark");
         applyFullWidth(false);
         applyFontScale(1);
+        tocOpen = false;
         closeResetModal();
         $("mainScreen").style.display = "none";
         $("setupScreen").style.display = "flex";
@@ -500,27 +527,59 @@ function markActive() {
     if (row) { row.classList.add("active"); row.scrollIntoView({ block: "nearest" }); }
 }
 
+function goBack() {
+	if (historyIndex <= 0) return;
+	historyIndex--;
+	skipHistoryPush = true;
+	openDocument(history[historyIndex]);
+}
+
+function goForward() {
+	if (historyIndex >= history.length - 1) return;
+	historyIndex++;
+	skipHistoryPush = true;
+	openDocument(history[historyIndex]);
+}
+
+function updateHistoryButtons() {
+	$("backBtn").disabled = historyIndex <= 0;
+	$("forwardBtn").disabled = historyIndex >= history.length - 1;
+}
+
 /* ---------- Документ ---------- */
 
 async function openDocument(oid, query) {
-    try {
-        const doc = await go().GetDocument(oid);
-        const s = await go().GetSettings().catch(() => null);
-        currentOID = oid;
-        expandAncestors(oid);
-        renderTree();
-        showDoc(doc, (s && s.apiURL) || "");
-        if (query) {
-            openFindBar(query);
-        } else if (find.open) {
-            runFind();
-        } else {
-            find.matches = [];
-            find.current = -1;
-        }
-    } catch (err) {
-        showToast("Ошибка", "Не удалось открыть документ: " + err, true);
-    }
+	try {
+		const doc = await go().GetDocument(oid);
+		const s = await go().GetSettings().catch(() => null);
+		
+		if (!skipHistoryPush) {
+			if (historyIndex < history.length - 1) {
+				history = history.slice(0, historyIndex + 1);
+			}
+			if (history[historyIndex] !== oid) {
+				history.push(oid);
+				historyIndex++;
+			}
+		}
+		skipHistoryPush = false;
+		updateHistoryButtons();
+		
+		currentOID = oid;
+		expandAncestors(oid);
+		renderTree();
+		showDoc(doc, (s && s.apiURL) || "");
+		if (query) {
+			openFindBar(query);
+		} else if (find.open) {
+			runFind();
+		} else {
+			find.matches = [];
+			find.current = -1;
+		}
+	} catch (err) {
+		showToast("Ошибка", "Не удалось открыть документ: " + err, true);
+	}
 }
 
 function showDoc(doc, base) {
@@ -531,6 +590,7 @@ function showDoc(doc, base) {
     renderDocLink(doc, base);
     renderCrumbs(doc.OutlineID);
     renderMarkdown(doc.Text || "");
+    renderTOC();
     document.querySelector(".viewer").scrollTop = 0;
 }
 
@@ -613,6 +673,44 @@ function renderMarkdown(md) {
         });
         wrap.appendChild(btn);
     });
+}
+
+function renderTOC() {
+	const panel = $("tocPanel");
+	const content = $("tocContent");
+	const btn = $("tocBtn");
+	const headings = $("docContent").querySelectorAll("h1, h2, h3");
+
+	content.innerHTML = "";
+	if (headings.length > 0) {
+		btn.disabled = false;
+		headings.forEach((h, i) => {
+			const id = "toc-heading-" + i;
+			h.id = id;
+			const item = document.createElement("a");
+			item.className = "toc-item toc-" + h.tagName.toLowerCase();
+			item.textContent = h.textContent;
+			item.href = "#" + id;
+			item.addEventListener("click", (e) => {
+				e.preventDefault();
+				h.scrollIntoView({ behavior: "smooth", block: "start" });
+			});
+			content.appendChild(item);
+		});
+	} else {
+		btn.disabled = true;
+	}
+	applyTocOpen(tocOpen);
+}
+
+function applyTocOpen(v) {
+	tocOpen = !!v;
+	localStorage.setItem("or.tocOpen", tocOpen ? "1" : "0");
+	const hasItems = $("tocContent").children.length > 0;
+	const show = tocOpen && hasItems;
+	$("tocPanel").style.display = show ? "block" : "none";
+	$("tocBtn").classList.toggle("active", show);
+	$("docViewer").classList.toggle("toc-open", show);
 }
 
 async function onContentClick(e) {
