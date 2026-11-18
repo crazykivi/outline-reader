@@ -18,6 +18,10 @@ export function GetDocumentByURLID(arg1) {
   return window['go']['main']['App']['GetDocumentByURLID'](arg1);
 }
 
+export function GetLastSyncTime() {
+  return window['go']['main']['App']['GetLastSyncTime']();
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }

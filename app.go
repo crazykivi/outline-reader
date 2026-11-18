@@ -184,6 +184,17 @@ func (a *App) GetSettings() (ConnectionSettings, error) {
 	return ConnectionSettings{APIURL: s.APIURL, APIKey: s.APIKey}, nil
 }
 
+func (a *App) GetLastSyncTime() string {
+	if err := a.ready(); err != nil {
+		return ""
+	}
+	t := a.getDB().GetLastSyncTime()
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
 func (a *App) SetConnection(apiURL, apiKey string) error {
 	if err := a.ready(); err != nil {
 		return err

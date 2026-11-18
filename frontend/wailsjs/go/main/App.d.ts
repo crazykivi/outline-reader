@@ -11,6 +11,8 @@ export function GetDocument(arg1:string):Promise<storage.Document>;
 
 export function GetDocumentByURLID(arg1:string):Promise<storage.Document>;
 
+export function GetLastSyncTime():Promise<string>;
+
 export function GetSettings():Promise<main.ConnectionSettings>;
 
 export function GetTree():Promise<Array<main.CollectionTree>>;
