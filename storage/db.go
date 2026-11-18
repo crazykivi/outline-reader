@@ -2,14 +2,14 @@ package storage
 
 import (
 	"errors"
+	"log"
+	"strings"
 	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
-
-type DB struct{ db *gorm.DB }
 
 type Document struct {
 	ID           uint   `gorm:"primaryKey"`
@@ -42,6 +42,11 @@ type SyncState struct {
 	LastSync time.Time
 }
 
+type DB struct {
+	db  *gorm.DB
+	fts bool
+}
+
 func NewDB(dbPath string) (*DB, error) {
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
@@ -52,7 +57,45 @@ func NewDB(dbPath string) (*DB, error) {
 	if err := db.AutoMigrate(&Document{}, &Collection{}, &Settings{}, &SyncState{}); err != nil {
 		return nil, err
 	}
-	return &DB{db: db}, nil
+	d := &DB{db: db}
+	d.fts = d.initFTS()
+	return d, nil
+}
+
+func (d *DB) initFTS() bool {
+	if err := d.db.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts
+		USING fts5(title, text, content='documents', content_rowid='id')`).Error; err != nil {
+		log.Printf("[DB] fts5 unavailable, LIKE fallback: %v", err)
+		return false
+	}
+	for _, q := range []string{
+		`CREATE TRIGGER IF NOT EXISTS docs_ai AFTER INSERT ON documents BEGIN
+			INSERT INTO docs_fts(rowid, title, text) VALUES (new.id, new.title, new.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS docs_ad AFTER DELETE ON documents BEGIN
+			INSERT INTO docs_fts(docs_fts, rowid, title, text) VALUES('delete', old.id, old.title, old.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS docs_au AFTER UPDATE ON documents BEGIN
+			INSERT INTO docs_fts(docs_fts, rowid, title, text) VALUES('delete', old.id, old.title, old.text);
+			INSERT INTO docs_fts(rowid, title, text) VALUES (new.id, new.title, new.text);
+		END`,
+	} {
+		if err := d.db.Exec(q).Error; err != nil {
+			log.Printf("[DB] fts trigger: %v", err)
+			return false
+		}
+	}
+	var docs, indexed int64
+	d.db.Raw(`SELECT count(*) FROM documents`).Scan(&docs)
+	d.db.Raw(`SELECT count(*) FROM docs_fts`).Scan(&indexed)
+	if docs != indexed {
+		if err := d.db.Exec(`INSERT INTO docs_fts(docs_fts) VALUES('rebuild')`).Error; err != nil {
+			log.Printf("[DB] fts rebuild: %v", err)
+			return false
+		}
+	}
+	log.Printf("[DB] fts5 ready, docs=%d", docs)
+	return true
 }
 
 func (d *DB) ReplaceAll(cols []Collection, docs []Document) error {
@@ -105,7 +148,34 @@ func (d *DB) GetDocumentByURLID(urlID string) (*Document, error) {
 	return &doc, nil
 }
 
+func ftsQuery(q string) string {
+	words := strings.Fields(q)
+	parts := make([]string, 0, len(words))
+	for _, w := range words {
+		parts = append(parts, "\""+strings.ReplaceAll(w, "\"", "\"\"")+"\"")
+	}
+	return strings.Join(parts, " ")
+}
+
 func (d *DB) SearchDocuments(query string) ([]Document, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return []Document{}, nil
+	}
+	if d.fts {
+		var out []Document
+		err := d.db.Table("documents").
+			Select("documents.*").
+			Joins("JOIN docs_fts ON docs_fts.rowid = documents.id").
+			Where("docs_fts MATCH ?", ftsQuery(query)).
+			Order("docs_fts.rank").
+			Limit(50).
+			Find(&out).Error
+		if err == nil {
+			return out, nil
+		}
+		log.Printf("[DB] fts search: %v", err)
+	}
 	var out []Document
 	like := "%" + query + "%"
 	err := d.db.Where("title LIKE ? OR text LIKE ?", like, like).Limit(50).Find(&out).Error
