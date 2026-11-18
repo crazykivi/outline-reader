@@ -1,0 +1,1 @@
+wails build -clean -trimpath -ldflags "-s -w"
