@@ -42,3 +42,6 @@ frontend/package-lock.json
 
 # Logs
 *.log
+
+# Portable Data
+/data/
