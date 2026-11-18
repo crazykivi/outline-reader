@@ -54,6 +54,11 @@ func NewDB(dbPath string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+	sqlDB.SetMaxOpenConns(1)
 	if err := db.AutoMigrate(&Document{}, &Collection{}, &Settings{}, &SyncState{}); err != nil {
 		return nil, err
 	}
@@ -66,6 +71,7 @@ func (d *DB) initFTS() bool {
 	if err := d.db.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts
 		USING fts5(title, text, content='documents', content_rowid='id')`).Error; err != nil {
 		log.Printf("[DB] fts5 unavailable, LIKE fallback: %v", err)
+		d.dropFTSTriggers()
 		return false
 	}
 	for _, q := range []string{
@@ -82,6 +88,7 @@ func (d *DB) initFTS() bool {
 	} {
 		if err := d.db.Exec(q).Error; err != nil {
 			log.Printf("[DB] fts trigger: %v", err)
+			d.dropFTSTriggers()
 			return false
 		}
 	}
@@ -96,6 +103,14 @@ func (d *DB) initFTS() bool {
 	}
 	log.Printf("[DB] fts5 ready, docs=%d", docs)
 	return true
+}
+
+func (d *DB) dropFTSTriggers() {
+	for _, name := range []string{"docs_ai", "docs_ad", "docs_au"} {
+		if err := d.db.Exec("DROP TRIGGER IF EXISTS " + name).Error; err != nil {
+			log.Printf("[DB] drop trigger %s: %v", name, err)
+		}
+	}
 }
 
 func (d *DB) ReplaceAll(cols []Collection, docs []Document) error {
