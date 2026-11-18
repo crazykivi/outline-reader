@@ -1,0 +1,7 @@
+{
+  "name": "OutlineReader",
+  "outputfilename": "OutlineReader",
+  "frontend:install": "",
+  "frontend:build": "",
+  "wailsjsdir": "./frontend"
+}
