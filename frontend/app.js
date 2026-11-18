@@ -723,36 +723,49 @@ async function onContentClick(e) {
         });
         return;
     }
+    
     const a = e.target.closest("a");
     if (!a) return;
-    const href = a.getAttribute("href") || "";
+    let href = a.getAttribute("href") || "";
+    
+    if (href.startsWith("http")) {
+        try {
+            const urlObj = new URL(href);
+            href = urlObj.pathname + urlObj.search + urlObj.hash;
+        } catch (err) { }
+    }
 
-	if (href.startsWith("/doc/")) {
-		e.preventDefault();
-		const slug = href.split(/[?#]/)[0].replace(/\/+$/, "").split("/").pop();
-		
-		const candidates = [slug];
-		if (slug.includes("-")) {
-			candidates.push(slug.split("-").pop());
-		}
-		
-		let found = false;
-		for (const urlId of candidates) {
-			try {
-				const d = await go().GetDocumentByURLID(urlId);
-				if (d && d.OutlineID) {
-					openDocument(d.OutlineID);
-					found = true;
-					break;
-				}
-			} catch (err) { }
-		}
-		
-		if (!found) {
-			showToast("Документ не найден", "Его нет в локальной базе — выполните синхронизацию", true);
-		}
-		return;
-	}
+    if (href.startsWith("/doc/")) {
+        e.preventDefault();
+        const path = href.split(/[?#]/)[0].replace(/\/+$/, "");
+        const slug = path.replace("/doc/", "");
+        
+        const candidates = new Set();
+        candidates.add(slug);
+        
+        if (slug.includes("-")) {
+            const parts = slug.split("-");
+            candidates.add(parts[parts.length - 1]); 
+        }
+                
+        let found = false;
+        for (const candidate of candidates) {
+            try {
+                const d = await go().GetDocumentByURLID(candidate);
+                if (d && d.OutlineID) {
+                    openDocument(d.OutlineID);
+                    found = true;
+                    break;
+                }
+            } catch (err) { }
+        }
+        
+        if (!found) {
+            showToast("Документ не найден", "Выполните синхронизацию или внутренняя ошибка", true);
+        }
+        return;
+    }
+
     if (href.startsWith("/img?") || href.includes("attachments.redirect")) {
         e.preventDefault();
         let url = href;
@@ -776,6 +789,7 @@ async function onContentClick(e) {
         }
         return;
     }
+    
     if (/^https?:/i.test(href)) {
         e.preventDefault();
         window.runtime.BrowserOpenURL(href);
