@@ -68,6 +68,11 @@ func newTestApp(t *testing.T) *App {
 	a := NewApp()
 	a.dbPath = filepath.Join(t.TempDir(), "test.db")
 	a.startup(context.Background())
+	t.Cleanup(func() {
+		if a.db != nil {
+			_ = a.db.Close()
+		}
+	})
 	return a
 }
 
@@ -217,6 +222,11 @@ func TestSettingsSurviveRestart(t *testing.T) {
 
 	b := NewApp()
 	b.dbPath = path
+	t.Cleanup(func() {
+		if b.db != nil {
+			_ = b.db.Close()
+		}
+	})
 	s, err := b.GetSettings()
 	require.NoError(t, err)
 	assert.Equal(t, srv.URL, s.APIURL)
