@@ -67,12 +67,14 @@ func newTestApp(t *testing.T) *App {
 	t.Helper()
 	a := NewApp()
 	a.dbPath = filepath.Join(t.TempDir(), "test.db")
-	a.startup(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	a.startup(ctx)
 	t.Cleanup(func() {
-		if a.db != nil {
-			_ = a.db.Close()
+		if db := a.getDB(); db != nil {
+			_ = db.Close()
 		}
 	})
+	t.Cleanup(cancel)
 	return a
 }
 
@@ -218,15 +220,16 @@ func TestSettingsSurviveRestart(t *testing.T) {
 	require.NoError(t, a.SetConnection(srv.URL, "good"))
 	_, err := a.SyncDocuments()
 	require.NoError(t, err)
-	require.NoError(t, a.db.Close())
+	require.NoError(t, a.getDB().Close())
 
 	b := NewApp()
 	b.dbPath = path
 	t.Cleanup(func() {
-		if b.db != nil {
-			_ = b.db.Close()
+		if db := b.getDB(); db != nil {
+			_ = db.Close()
 		}
 	})
+
 	s, err := b.GetSettings()
 	require.NoError(t, err)
 	assert.Equal(t, srv.URL, s.APIURL)
@@ -235,4 +238,31 @@ func TestSettingsSurviveRestart(t *testing.T) {
 	tree, err := b.GetTree()
 	require.NoError(t, err)
 	assert.Len(t, tree, 1)
+}
+
+func TestSyncRemovesDeletedDocuments(t *testing.T) {
+	f, srv := newFakeOutline(t)
+	a := newTestApp(t)
+	require.NoError(t, a.SetConnection(srv.URL, "good"))
+	_, err := a.SyncDocuments()
+	require.NoError(t, err)
+
+	f.mu.Lock()
+	f.docs = f.docs[:1]
+	f.mu.Unlock()
+
+	titles, err := a.CheckForUpdates()
+	require.NoError(t, err)
+	assert.Empty(t, titles)
+
+	n, err := a.SyncDocuments()
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	_, err = a.GetDocument("d2")
+	assert.Error(t, err)
+
+	hits, err := a.SearchDocuments("child")
+	require.NoError(t, err)
+	assert.Empty(t, hits)
 }
