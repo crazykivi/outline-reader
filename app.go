@@ -23,6 +23,7 @@ type App struct {
 	db      *storage.DB
 	client  *outline.Client
 	dbPath  string
+	version string
 }
 
 func NewApp() *App { return &App{} }
@@ -30,6 +31,13 @@ func NewApp() *App { return &App{} }
 func (a *App) ensure() error {
 	a.once.Do(func() { a.initErr = a.init() })
 	return a.initErr
+}
+
+func (a *App) AppVersion() string {
+	if a.version == "" {
+		return "dev"
+	}
+	return a.version
 }
 
 func (a *App) init() error {

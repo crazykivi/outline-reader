@@ -14,8 +14,12 @@ import (
 //go:embed frontend/*
 var assets embed.FS
 
+// -X main.version=x.y.z
+var version = "dev"
+
 func main() {
 	app := NewApp()
+	app.version = version
 	if err := app.ensure(); err != nil {
 		log.Printf("[APP] init: %v", err)
 	}

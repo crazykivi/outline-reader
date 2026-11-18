@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          cache: true
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Extract version
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $ver = $tag -replace '^v', ''
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "tag=$tag"     | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Build changelog
+        id: changelog
+        shell: pwsh
+        run: |
+          $tags = git tag --sort=-v:refname
+          $current = "${{ github.ref_name }}"
+          $idx = [array]::IndexOf($tags, $current)
+
+          if ($idx -ge 0 -and $idx -lt $tags.Length - 1) {
+            $prev = $tags[$idx + 1]
+            $range = "$prev..$current"
+          } else {
+            $range = $current
+          }
+
+          $log = git log $range --pretty=format:"* %s (%h)" --no-merges
+          $log | Out-File -FilePath CHANGELOG.md -Encoding utf8
+          "changelog<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $log              | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "EOF"             | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Wails build
+        env:
+          CGO_ENABLED: 1
+        run: wails build -clean -trimpath -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}"
+
+      - name: Prepare artifact
+        shell: pwsh
+        run: |
+          $src = "build\bin\outline-reader.exe"
+          $dst = "outline-reader-${{ steps.version.outputs.tag }}-windows-amd64.exe"
+          Copy-Item $src $dst
+          "artifact=$dst" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        id: artifact
+
+      - name: Create Release and upload
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Outline Reader ${{ steps.version.outputs.tag }}
+          body: |
+            ## ${{ steps.version.outputs.tag }}
+
+            ${{ steps.changelog.outputs.changelog }}
+
+            ---
+            Установщик не требуется — это один self-contained `.exe`.
+          files: ${{ steps.artifact.outputs.artifact }}
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.tag, '-') }}

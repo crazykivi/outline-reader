@@ -3,6 +3,8 @@
 import {storage} from '../models';
 import {main} from '../models';
 
+export function AppVersion():Promise<string>;
+
 export function CheckForUpdates():Promise<Array<string>>;
 
 export function GetDocument(arg1:string):Promise<storage.Document>;
