@@ -36,11 +36,19 @@ func main() {
 			Middleware: app.imageMiddleware,
 		},
 		OnStartup: app.startup,
-		Bind:      []interface{}{app},
-		Logger:    logger.NewDefaultLogger(),
+		Bind: []interface{}{
+			app,
+		},
+		Logger: logger.NewDefaultLogger(),
 		Windows: &windows.Options{
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
+		},
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId: "outline-reader-crazykivi-9f3a2b1c-d4e5f6",
+			OnSecondInstanceLaunch: func(data options.SecondInstanceData) {
+				log.Println("[APP] second instance detected, focusing existing window")
+			},
 		},
 	})
 
