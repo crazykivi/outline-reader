@@ -16,8 +16,11 @@ import (
 	"outline-reader/storage"
 )
 
+const fullSyncInterval = time.Hour
+
 type App struct {
 	mu      sync.RWMutex
+	opMu    sync.Mutex
 	once    sync.Once
 	initErr error
 	db      *storage.DB
@@ -57,7 +60,7 @@ func (a *App) init() error {
 	if err != nil {
 		return fmt.Errorf("db init: %w", err)
 	}
-	a.db = db
+	a.setDB(db)
 	s, err := db.GetSettings()
 	if err == nil && s.APIURL != "" && s.APIKey != "" {
 		a.setClient(outline.NewClient(s.APIURL, s.APIKey))
@@ -66,16 +69,39 @@ func (a *App) init() error {
 	return nil
 }
 
-func (a *App) startup(_ context.Context) { _ = a.ensure() }
+func (a *App) startup(ctx context.Context) {
+	_ = a.ensure()
+	go a.syncLoop(ctx)
+}
+
+func (a *App) syncLoop(ctx context.Context) {
+	t := time.NewTicker(fullSyncInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if a.getClient() == nil {
+				continue
+			}
+			if _, err := a.SyncDocuments(); err != nil {
+				log.Printf("[SYNC] periodic: %v", err)
+			}
+		}
+	}
+}
 
 func (a *App) setClient(c *outline.Client) { a.mu.Lock(); a.client = c; a.mu.Unlock() }
 func (a *App) getClient() *outline.Client  { a.mu.RLock(); defer a.mu.RUnlock(); return a.client }
+func (a *App) setDB(db *storage.DB)        { a.mu.Lock(); a.db = db; a.mu.Unlock() }
+func (a *App) getDB() *storage.DB          { a.mu.RLock(); defer a.mu.RUnlock(); return a.db }
 
 func (a *App) ready() error {
 	if err := a.ensure(); err != nil {
 		return err
 	}
-	if a.db == nil {
+	if a.getDB() == nil {
 		return fmt.Errorf("хранилище не инициализировано")
 	}
 	return nil
@@ -90,7 +116,7 @@ func (a *App) GetSettings() (ConnectionSettings, error) {
 	if err := a.ready(); err != nil {
 		return ConnectionSettings{}, err
 	}
-	s, err := a.db.GetSettings()
+	s, err := a.getDB().GetSettings()
 	if err != nil {
 		return ConnectionSettings{}, err
 	}
@@ -110,7 +136,7 @@ func (a *App) SetConnection(apiURL, apiKey string) error {
 	if err := client.CheckAuth(); err != nil {
 		return fmt.Errorf("проверка подключения: %w", err)
 	}
-	if err := a.db.SaveSettings(&storage.Settings{APIURL: apiURL, APIKey: apiKey}); err != nil {
+	if err := a.getDB().SaveSettings(&storage.Settings{APIURL: apiURL, APIKey: apiKey}); err != nil {
 		return err
 	}
 	a.setClient(client)
@@ -134,11 +160,12 @@ func (a *App) GetTree() ([]CollectionTree, error) {
 	if err := a.ready(); err != nil {
 		return nil, err
 	}
-	cols, err := a.db.GetCollections()
+	db := a.getDB()
+	cols, err := db.GetCollections()
 	if err != nil {
 		return nil, err
 	}
-	docs, err := a.db.GetDocuments()
+	docs, err := db.GetDocuments()
 	if err != nil {
 		return nil, err
 	}
@@ -189,14 +216,14 @@ func (a *App) GetDocument(outlineID string) (*storage.Document, error) {
 	if err := a.ready(); err != nil {
 		return nil, err
 	}
-	return a.db.GetDocumentByOutlineID(outlineID)
+	return a.getDB().GetDocumentByOutlineID(outlineID)
 }
 
 func (a *App) GetDocumentByURLID(urlID string) (*storage.Document, error) {
 	if err := a.ready(); err != nil {
 		return nil, err
 	}
-	return a.db.GetDocumentByURLID(urlID)
+	return a.getDB().GetDocumentByURLID(urlID)
 }
 
 func (a *App) SearchDocuments(query string) ([]storage.Document, error) {
@@ -207,10 +234,16 @@ func (a *App) SearchDocuments(query string) ([]storage.Document, error) {
 	if query == "" {
 		return []storage.Document{}, nil
 	}
-	return a.db.SearchDocuments(query)
+	return a.getDB().SearchDocuments(query)
 }
 
 func (a *App) SyncDocuments() (int, error) {
+	a.opMu.Lock()
+	defer a.opMu.Unlock()
+	return a.syncLocked()
+}
+
+func (a *App) syncLocked() (int, error) {
 	if err := a.ready(); err != nil {
 		return 0, err
 	}
@@ -218,7 +251,7 @@ func (a *App) SyncDocuments() (int, error) {
 	if client == nil {
 		return 0, fmt.Errorf("подключение не настроено")
 	}
-
+	db := a.getDB()
 	cols, err := client.Collections()
 	if err != nil {
 		return 0, err
@@ -235,7 +268,6 @@ func (a *App) SyncDocuments() (int, error) {
 			maxUpdated = d.UpdatedAt
 		}
 	}
-
 	docs := make([]storage.Document, 0, len(content))
 	used := make(map[string]bool, len(content))
 	pos := 0
@@ -247,7 +279,6 @@ func (a *App) SyncDocuments() (int, error) {
 			Position: pos, UpdatedAt: d.UpdatedAt,
 		})
 	}
-
 	for _, col := range cols {
 		nodes, err := client.CollectionTree(col.ID)
 		if err != nil {
@@ -271,24 +302,24 @@ func (a *App) SyncDocuments() (int, error) {
 			add(d, d.CollectionID, d.ParentID)
 		}
 	}
-
 	scols := make([]storage.Collection, 0, len(cols))
 	for i, c := range cols {
 		scols = append(scols, storage.Collection{OutlineID: c.ID, Name: c.Name, Position: i})
 	}
-	if err := a.db.ReplaceAll(scols, docs); err != nil {
+	if err := db.ReplaceAll(scols, docs); err != nil {
 		return 0, err
 	}
-
 	if maxUpdated.IsZero() {
 		maxUpdated = time.Now()
 	}
-	_ = a.db.SetLastSyncTime(maxUpdated)
+	_ = db.SetLastSyncTime(maxUpdated)
 	log.Printf("[SYNC] collections=%d documents=%d", len(scols), len(docs))
 	return len(docs), nil
 }
 
 func (a *App) CheckForUpdates() ([]string, error) {
+	a.opMu.Lock()
+	defer a.opMu.Unlock()
 	if err := a.ready(); err != nil {
 		return nil, err
 	}
@@ -296,9 +327,9 @@ func (a *App) CheckForUpdates() ([]string, error) {
 	if client == nil {
 		return nil, nil
 	}
-	last := a.db.GetLastSyncTime()
+	last := a.getDB().GetLastSyncTime()
 	if last.IsZero() {
-		_, err := a.SyncDocuments()
+		_, err := a.syncLocked()
 		return nil, err
 	}
 	updated, err := client.UpdatedSince(last)
@@ -312,7 +343,7 @@ func (a *App) CheckForUpdates() ([]string, error) {
 	for _, d := range updated {
 		titles = append(titles, d.Title)
 	}
-	if _, err := a.SyncDocuments(); err != nil {
+	if _, err := a.syncLocked(); err != nil {
 		return nil, err
 	}
 	return titles, nil
@@ -356,12 +387,14 @@ func (a *App) serveImage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) ResetApp() error {
+	a.opMu.Lock()
+	defer a.opMu.Unlock()
 	if err := a.ready(); err != nil {
 		return err
 	}
 	a.setClient(nil)
-	old := a.db
-	a.db = nil
+	old := a.getDB()
+	a.setDB(nil)
 	if err := old.Close(); err != nil {
 		return fmt.Errorf("close db: %w", err)
 	}
@@ -370,11 +403,11 @@ func (a *App) ResetApp() error {
 			return fmt.Errorf("remove %s: %w", a.dbPath+suffix, err)
 		}
 	}
-	var err error
-	a.db, err = storage.NewDB(a.dbPath)
+	db, err := storage.NewDB(a.dbPath)
 	if err != nil {
 		return fmt.Errorf("reinit db: %w", err)
 	}
+	a.setDB(db)
 	log.Printf("[APP] local storage reset")
 	return nil
 }
