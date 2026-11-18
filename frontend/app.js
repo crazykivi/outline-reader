@@ -727,18 +727,32 @@ async function onContentClick(e) {
     if (!a) return;
     const href = a.getAttribute("href") || "";
 
-    if (href.startsWith("/doc/")) {
-        e.preventDefault();
-        const slug = href.split(/[?#]/)[0].replace(/\/+$/, "").split("/").pop();
-        const urlId = slug.includes("-") ? slug.split("-").pop() : slug;
-        try {
-            const d = await go().GetDocumentByURLID(urlId);
-            openDocument(d.OutlineID);
-        } catch (err) {
-            showToast("Документ не найден", "Его нет в локальной базе — выполните синхронизацию", true);
-        }
-        return;
-    }
+	if (href.startsWith("/doc/")) {
+		e.preventDefault();
+		const slug = href.split(/[?#]/)[0].replace(/\/+$/, "").split("/").pop();
+		
+		const candidates = [slug];
+		if (slug.includes("-")) {
+			candidates.push(slug.split("-").pop());
+		}
+		
+		let found = false;
+		for (const urlId of candidates) {
+			try {
+				const d = await go().GetDocumentByURLID(urlId);
+				if (d && d.OutlineID) {
+					openDocument(d.OutlineID);
+					found = true;
+					break;
+				}
+			} catch (err) { }
+		}
+		
+		if (!found) {
+			showToast("Документ не найден", "Его нет в локальной базе — выполните синхронизацию", true);
+		}
+		return;
+	}
     if (href.startsWith("/img?") || href.includes("attachments.redirect")) {
         e.preventDefault();
         let url = href;
