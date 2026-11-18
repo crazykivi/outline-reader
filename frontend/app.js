@@ -14,6 +14,7 @@ let updateTimer = null;
 let searchTimer = null;
 let toastTimer = null;
 let fullWidth = localStorage.getItem("or.fullWidth") === "1";
+let fontScale = parseFloat(localStorage.getItem("or.fontScale") || "1");
 let lastTreeClick = { oid: null, time: 0 };
 let currentDocUrl = "";
 
@@ -25,10 +26,12 @@ const find = {
 const FIND_LIMIT = 10000;
 
 try { expanded = new Set(JSON.parse(localStorage.getItem("or.expanded") || "[]")); } catch (e) {}
+if (!(fontScale >= 0.7 && fontScale <= 2.0)) fontScale = 1;
 
 document.addEventListener("DOMContentLoaded", async () => {
     applyTheme(localStorage.getItem("or.theme") || "dark");
     applyFullWidth(fullWidth);
+    applyFontScale(fontScale);
     bindUI();
     initResizer();
     try {
@@ -181,7 +184,23 @@ function bindUI() {
             if ($("aboutModal").style.display !== "none") { closeAboutModal(); return; }
             if (find.open) closeFindBar();
         }
+        if ((e.ctrlKey || e.metaKey) && (e.code === "Equal" || e.code === "NumpadAdd")) {
+            e.preventDefault(); zoomIn(); return;
+        }
+        if ((e.ctrlKey || e.metaKey) && (e.code === "Minus" || e.code === "NumpadSubtract")) {
+            e.preventDefault(); zoomOut(); return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.code === "Digit0") {
+            e.preventDefault(); zoomReset(); return;
+        }
     });
+    document.addEventListener("wheel", (e) => {
+        if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            if (e.deltaY < 0) zoomIn();
+            else if (e.deltaY > 0) zoomOut();
+        }
+    }, { passive: false });
     $("docLink").addEventListener("click", (e) => {
         e.preventDefault();
         if (currentDocUrl) window.runtime.BrowserOpenURL(currentDocUrl);
@@ -195,6 +214,10 @@ function bindUI() {
         closeMenu();
         showAbout();
     });
+    $("menuZoomIn").addEventListener("click", () => { closeMenu(); zoomIn(); });
+    $("menuZoomOut").addEventListener("click", () => { closeMenu(); zoomOut(); });
+    $("zoomIndicator").addEventListener("click", zoomReset);
+    $("menuZoomReset").addEventListener("click", () => { closeMenu(); zoomReset(); });
     $("docContent").addEventListener("click", onContentClick);
 }
 
@@ -275,6 +298,7 @@ async function saveConnection() {
         closeConnModal();
         showToast("Подключение обновлено", "Документов в базе: " + n, false);
         await loadTree();
+        updateLastSync();
         if (currentOID) openDocument(currentOID);
     } catch (err) {
         $("connError").textContent = String(err);
@@ -312,7 +336,7 @@ async function doReset() {
         document.querySelector(".sidebar").style.width = "";
         applyTheme("dark");
         applyFullWidth(false);
-
+        applyFontScale(1);
         closeResetModal();
         $("mainScreen").style.display = "none";
         $("setupScreen").style.display = "flex";
@@ -363,6 +387,23 @@ function updateDocCount() {
     $("docCount").textContent = n ? pluralDocs(n) : "";
 }
 
+async function updateLastSync() {
+	const el = $("lastSync");
+	if (!el) return;
+	try {
+		const iso = await go().GetLastSyncTime();
+		if (!iso) { el.textContent = ""; el.title = ""; return; }
+		const ago = Date.now() - new Date(iso).getTime();
+		let text;
+		if      (ago < 60_000)      text = "обновлено только что";
+		else if (ago < 3_600_000)   text = "обновлено " + Math.floor(ago / 60_000) + " мин назад";
+		else if (ago < 86_400_000)  text = "обновлено " + Math.floor(ago / 3_600_000) + " ч назад";
+		else                        text = "обновлено " + Math.floor(ago / 86_400_000) + " дн назад";
+		el.textContent = text;
+		el.title = new Date(iso).toLocaleString("ru-RU");
+	} catch (e) { el.textContent = ""; }
+}
+
 function pluralDocs(n) {
     const m10 = n % 10, m100 = n % 100;
     if (m10 === 1 && m100 !== 11) return n + " документ";
@@ -397,6 +438,7 @@ function renderTree() {
         sec.appendChild(renderNodes(col.nodes, 0));
         el.appendChild(sec);
     }
+    updateLastSync();
     markActive();
 }
 
@@ -574,6 +616,15 @@ function renderMarkdown(md) {
 }
 
 async function onContentClick(e) {
+    const code = e.target.closest("code");
+    if (code && !code.closest("pre")) {
+        const text = code.textContent;
+        if (!text) return;
+        window.runtime.ClipboardSetText(text).then((ok) => {
+            showToast(ok ? "Скопировано" : "Ошибка", text.slice(0, 80), !ok);
+        });
+        return;
+    }
     const a = e.target.closest("a");
     if (!a) return;
     const href = a.getAttribute("href") || "";
@@ -813,6 +864,7 @@ async function syncNow() {
         setNet(true);
         showToast("Синхронизация завершена", "Документов в базе: " + n, false);
         await loadTree();
+        updateLastSync();
         if (currentOID) openDocument(currentOID);
     } catch (err) {
         setNet(false);
@@ -837,6 +889,7 @@ async function checkUpdates() {
             $("updateNotification").style.display = "block";
             setTimeout(() => { $("updateNotification").style.display = "none"; }, 6000);
             await loadTree();
+            updateLastSync();
             if (currentOID) openDocument(currentOID);
         }
     } catch (err) {
@@ -883,6 +936,30 @@ function applyFullWidth(v) {
     localStorage.setItem("or.fullWidth", v ? "1" : "0");
     $("docViewer").classList.toggle("full-width", v);
     $("fwSwitch").classList.toggle("on", v);
+}
+
+function applyFontScale(v) {
+	fontScale = Math.round(v * 10) / 10;
+	fontScale = Math.max(0.7, Math.min(2.0, fontScale));
+	localStorage.setItem("or.fontScale", String(fontScale));
+	document.documentElement.style.setProperty("--font-scale", String(fontScale));
+	updateZoomIndicator();
+}
+
+function zoomIn()    { applyFontScale(fontScale + 0.1); }
+function zoomOut()   { applyFontScale(fontScale - 0.1); }
+function zoomReset() { applyFontScale(1); }
+
+function updateZoomIndicator() {
+	const el = $("zoomIndicator");
+	if (!el) return;
+	const pct = Math.round(fontScale * 100);
+	if (pct === 100) {
+		el.style.display = "none";
+	} else {
+		el.textContent = pct + "%";
+		el.style.display = "inline-flex";
+	}
 }
 
 function initResizer() {
