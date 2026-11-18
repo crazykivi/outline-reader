@@ -21,4 +21,6 @@ export function SearchDocuments(arg1:string):Promise<Array<storage.Document>>;
 
 export function SetConnection(arg1:string,arg2:string):Promise<void>;
 
+export function StorageInfo():Promise<main.StorageInfo>;
+
 export function SyncDocuments():Promise<number>;

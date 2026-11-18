@@ -38,6 +38,10 @@ export function SetConnection(arg1, arg2) {
   return window['go']['main']['App']['SetConnection'](arg1, arg2);
 }
 
+export function StorageInfo() {
+  return window['go']['main']['App']['StorageInfo']();
+}
+
 export function SyncDocuments() {
   return window['go']['main']['App']['SyncDocuments']();
 }

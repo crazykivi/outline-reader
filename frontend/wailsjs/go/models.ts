@@ -82,6 +82,22 @@ export namespace main {
 	        this.apiKey = source["apiKey"];
 	    }
 	}
+	export class StorageInfo {
+	    portable: boolean;
+	    dataDir: string;
+	    dbPath: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new StorageInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.portable = source["portable"];
+	        this.dataDir = source["dataDir"];
+	        this.dbPath = source["dbPath"];
+	    }
+	}
 
 }
 
