@@ -113,6 +113,19 @@ jobs:
           "artifact=$dst" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
         id: artifact
 
+      - name: Prepare portable artifact
+        id: portable
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.version.outputs.tag }}"
+          $root = "portable\OutlineReader"
+          New-Item -ItemType Directory -Force -Path "$root\data" | Out-Null
+          Copy-Item "${{ steps.artifact.outputs.artifact }}" "$root\outline-reader.exe"
+          Set-Content -Path "$root\data\keep.txt" -Encoding utf8 -Value "Не удаляйте папку: она включает portable-режим, здесь хранятся база и профиль WebView2."
+          $zip = "outline-reader-$tag-portable-windows-amd64.zip"
+          Compress-Archive -Path $root -DestinationPath $zip -Force
+          "portable=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
       - name: Create Release and upload
         uses: softprops/action-gh-release@v2
         with:
@@ -124,6 +137,8 @@ jobs:
 
             ---
             Установщик не требуется — это один self-contained `.exe`.
-          files: ${{ steps.artifact.outputs.artifact }}
+          files: |
+            ${{ steps.artifact.outputs.artifact }}
+            ${{ steps.portable.outputs.portable }}
           draft: false
           prerelease: ${{ contains(steps.version.outputs.tag, '-') }}
