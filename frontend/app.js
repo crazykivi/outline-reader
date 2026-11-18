@@ -103,6 +103,14 @@ function bindUI() {
     $("resetCancel").addEventListener("click", closeResetModal);
     $("resetConfirm").addEventListener("click", doReset);
     $("resetModal").addEventListener("mousedown", (e) => { if (e.target === $("resetModal")) closeResetModal(); });
+    // модалка "О программе"
+    $("aboutClose").addEventListener("click", closeAboutModal);
+    $("aboutOk").addEventListener("click", closeAboutModal);
+    $("aboutRepo").addEventListener("click", (e) => {
+        e.preventDefault();
+        window.runtime.BrowserOpenURL("https://github.com/crazykivi/outline-reader");
+    });
+    $("aboutModal").addEventListener("mousedown", (e) => {  if (e.target === $("aboutModal")) closeAboutModal();  });
 
     // глобальный поиск
     $("searchInput").addEventListener("input", () => {
@@ -170,6 +178,7 @@ function bindUI() {
             if ($("docMenu").style.display !== "none") { closeMenu(); return; }
             if ($("connModal").style.display !== "none") { closeConnModal(); return; }
             if ($("resetModal").style.display !== "none") { closeResetModal(); return; }
+            if ($("aboutModal").style.display !== "none") { closeAboutModal(); return; }
             if (find.open) closeFindBar();
         }
     });
@@ -181,6 +190,10 @@ function bindUI() {
         if (!currentDocUrl) return;
         const ok = await window.runtime.ClipboardSetText(currentDocUrl);
         showToast(ok ? "Ссылка скопирована" : "Ошибка", ok ? currentDocUrl : "Не удалось скопировать ссылку", !ok);
+    });
+    $("menuAbout").addEventListener("click", () => {
+        closeMenu();
+        showAbout();
     });
     $("docContent").addEventListener("click", onContentClick);
 }
@@ -216,6 +229,12 @@ async function connect() {
         btn.disabled = false;
         btn.textContent = "Подключиться";
     }
+}
+
+async function showAbout() {
+    const v = await go().AppVersion();
+    $("aboutVersion").textContent = v === "dev" ? "dev-сборка" : "v" + v;
+    $("aboutModal").style.display = "flex";
 }
 
 function openMenu() {
@@ -267,6 +286,7 @@ async function saveConnection() {
 
 function openResetModal() { $("resetModal").style.display = "flex"; }
 function closeResetModal() { $("resetModal").style.display = "none"; }
+function closeAboutModal() { $("aboutModal").style.display = "none"; }
 
 async function doReset() {
     const btn = $("resetConfirm");

@@ -41,13 +41,15 @@ body {
 .app { height: 100vh; }
 button { font: inherit; }
 body.resizing { user-select: none; cursor: col-resize; }
+.logo-img { height: 44px; width: auto; display: block; color: var(--text);  }
+.setup-header .logo-img { height: 128px; margin: 0 auto 14px; }
 
 .setup-screen { height: 100vh; display: flex; align-items: center; justify-content: center; }
 .setup-card {
     background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
     padding: 40px; width: 100%; max-width: 440px;
 }
-.setup-header { text-align: center; margin-bottom: 28px; }
+.setup-header { text-align: center; margin-bottom: 6px; }
 .setup-header h1 { font-size: 26px; font-weight: 700; }
 .setup-header h1 span { color: var(--accent); }
 .setup-header p { color: var(--muted); margin-top: 6px; }
@@ -375,3 +377,44 @@ mark.find-hit.current {
 .doc-link:hover { color: var(--accent); border-color: var(--accent); }
 .doc-link svg { flex: none; }
 .doc-link-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.about-modal { max-width: 460px; padding: 30px 28px 18px; position: relative; }
+.about-modal .modal-x { position: absolute; top: 12px; right: 12px; }
+.about-hero { display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 16px; }
+.about-logo {
+    width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center;
+    background: var(--accent-soft); border: 1px solid var(--border);
+    color: var(--accent); margin-bottom: 14px;
+}
+.about-title { font-size: 22px; font-weight: 700; letter-spacing: -.01em; color: var(--text); }
+.about-title span { color: var(--accent); }
+.about-badge {
+    margin-top: 8px; padding: 3px 10px; border-radius: 999px;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 11.5px;
+    color: var(--accent); background: var(--accent-soft); border: 1px solid var(--border);
+}
+.about-description {
+    text-align: center; font-size: 13px; line-height: 1.6; color: var(--muted); margin: 0 0 18px;
+}
+.about-features { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.about-feature {
+    display: flex; gap: 12px; align-items: flex-start;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+}
+.about-feature-icon {
+    width: 30px; height: 30px; flex: none; display: grid; place-items: center;
+    border-radius: 8px; background: var(--accent-soft); color: var(--accent);
+}
+.about-feature strong { display: block; font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.about-feature p { font-size: 12px; line-height: 1.45; color: var(--muted); }
+.about-foot {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    border-top: 1px solid var(--border); padding-top: 14px;
+}
+.about-repo {
+    display: inline-flex; align-items: center; gap: 6px; min-width: 0;
+    font-size: 12px; color: var(--muted); text-decoration: none; cursor: pointer;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.about-repo:hover { color: var(--accent); }
+.about-repo svg { flex: none; }
