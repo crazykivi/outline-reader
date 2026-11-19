@@ -7,9 +7,23 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.4'
+          cache: true
+      - run: go vet ./...
+      - run: go test ./... -race -count=1 -cover
+
   build:
+    needs: test
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -25,7 +39,7 @@ jobs:
           cache: true
 
       - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
 
       - name: Download Go modules
         run: go mod download
@@ -44,9 +58,7 @@ jobs:
         shell: pwsh
         run: |
           $current = "${{ github.ref_name }}"
-          
           $allTags = @(git tag --sort=-v:refname 2>&1)
-          
           if ($allTags.Count -le 1) {
             $range = $current
           } else {
@@ -58,36 +70,23 @@ jobs:
               $range = $current
             }
           }
-          
           $log = git log $range --pretty=format:"* %s (%h)" --no-merges --
           $log | Out-File -FilePath CHANGELOG.md -Encoding utf8
           "changelog<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           $log              | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "EOF"             | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Wails build
         env:
           CGO_ENABLED: 0
         run: wails build -clean -trimpath -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}"
-      
-      - name: List build output
-        shell: pwsh
-        run: |
-          Write-Host "=== build ==="
-          if (Test-Path "build") {
-            Get-ChildItem "build" -Recurse -File | Select-Object FullName, Length | Format-Table -AutoSize
-          } else {
-            Write-Host "build/ directory does not exist"
-          }
-          Write-Host "=== root exe ==="
-          Get-ChildItem ".\*.exe" -ErrorAction SilentlyContinue | Select-Object FullName, Length
 
       - name: Prepare artifact
         shell: pwsh
+        id: artifact
         run: |
           $tag = "${{ steps.version.outputs.tag }}"
           $dst = "outline-reader-$tag-windows-amd64.exe"
-          
           $exe = $null
           $candidates = @(
             "build\bin\outline-reader.exe",
@@ -102,16 +101,12 @@ jobs:
           if (-not $exe) {
             $exe = Get-ChildItem "build\*.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
           }
-          
           if (-not $exe) {
-            Write-Error "No .exe found after wails build. Check 'List build output' step above."
+            Write-Error "No .exe found after wails build."
             exit 1
           }
-          
-          Write-Host "Found exe: $($exe.FullName) ($([math]::Round($exe.Length / 1MB, 2)) MB)"
           Copy-Item $exe.FullName $dst
           "artifact=$dst" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-        id: artifact
 
       - name: Prepare portable artifact
         id: portable
@@ -126,19 +121,36 @@ jobs:
           Compress-Archive -Path $root -DestinationPath $zip -Force
           "portable=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
+      - name: Checksums
+        shell: pwsh
+        run: |
+          $files = @("${{ steps.artifact.outputs.artifact }}", "${{ steps.portable.outputs.portable }}")
+          $lines = foreach ($f in $files) {
+            $h = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
+            "$h  $f"
+          }
+          $lines | Out-File -FilePath sha256sums.txt -Encoding ascii
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            ${{ steps.artifact.outputs.artifact }}
+            ${{ steps.portable.outputs.portable }}
+
       - name: Create Release and upload
         uses: softprops/action-gh-release@v2
         with:
-          name: Outline Reader ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
           body: |
-            ## ${{ steps.version.outputs.tag }}
-
             ${{ steps.changelog.outputs.changelog }}
 
             ---
             Установщик не требуется — это один self-contained `.exe`.
+            Проверка целостности: `sha256sums.txt` + GitHub artifact attestation.
           files: |
             ${{ steps.artifact.outputs.artifact }}
             ${{ steps.portable.outputs.portable }}
+            sha256sums.txt
           draft: false
           prerelease: ${{ contains(steps.version.outputs.tag, '-') }}
