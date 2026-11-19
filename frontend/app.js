@@ -26,6 +26,7 @@ let currentDocUrl = "";
 let lockHasDB = false, lockPortable = false, lockLegacy = false, idleTimer = null;
 let isPortable = false, captureProtect = false;
 let favorites = [];
+let activeSource = "tree";
 let clipTimer = null;
 let guardTimer = null, guardLeft = 0;
 
@@ -684,7 +685,7 @@ function renderTree() {
             label.className = "tree-label";
             label.textContent = d.Title || "Без названия";
             row.append(star, label);
-            row.addEventListener("click", () => openDocument(d.OutlineID));
+            row.addEventListener("click", () => openDocument(d.OutlineID, undefined, "fav"));
             li.appendChild(row);
             ul.appendChild(li);
         }
@@ -758,7 +759,11 @@ function renderNodes(nodes, depth) {
 function markActive() {
     document.querySelectorAll(".tree-row.active").forEach((el) => el.classList.remove("active"));
     if (!currentOID) return;
-    const row = document.querySelector(`.tree-row[data-oid="${CSS.escape(currentOID)}"]`);
+    const esc = CSS.escape(currentOID);
+    let row = activeSource === "fav"
+        ? document.querySelector(`.tree-row.fav-row[data-oid="${esc}"]`)
+        : document.querySelector(`.tree-row:not(.fav-row)[data-oid="${esc}"]`);
+    if (!row) row = document.querySelector(`.tree-row[data-oid="${esc}"]`);
     if (row) { row.classList.add("active"); row.scrollIntoView({ block: "nearest" }); }
 }
 
@@ -887,7 +892,8 @@ function paletteMove(dir) {
 
 /* ---------- Документ ---------- */
 
-async function openDocument(oid, query) {
+async function openDocument(oid, query, source) {
+    activeSource = source === "fav" ? "fav" : "tree";
     try {
         const doc = await go().GetDocument(oid);
         const s = await go().GetSettings().catch(() => null);
