@@ -23,12 +23,12 @@ let tocOpen = localStorage.getItem("or.tocOpen") === "1";
 let fontScale = parseFloat(localStorage.getItem("or.fontScale") || "1");
 let lastTreeClick = { oid: null, time: 0 };
 let currentDocUrl = "";
-let lockHasDB = false, lockPortable = false, idleTimer = null;
+let lockHasDB = false, lockPortable = false, lockLegacy = false, idleTimer = null;
 let isPortable = false, captureProtect = false;
 let favorites = [];
 let clipTimer = null;
 
-const IDLE_LOCK_MS = 10 * 60 * 1000;
+const IDLE_LOCK_MS = 5 * 60 * 1000;
 const palette = { open: false, items: [], sel: 0, timer: null };
 
 const find = {
@@ -80,6 +80,7 @@ function bindUI() {
     });
     $("closeNotification").addEventListener("click", () => { $("updateNotification").style.display = "none"; });
     $("lockBtn").addEventListener("click", unlockDB);
+    $("lockReset").addEventListener("click", resetFromLock);
     [$("lockPass"), $("lockPass2")].forEach((el) => {
         el.addEventListener("keydown", (e) => { if (e.key === "Enter") unlockDB(); });
     });
@@ -279,35 +280,57 @@ function bindUI() {
 async function bootstrap(autoUnlock) {
     let st = await go().StorageStatus();
     isPortable = st.portable;
-    if (st.locked && !st.portable && autoUnlock) {
-        await go().UnlockDB("");
-        st = await go().StorageStatus();
-    }
     if (st.locked) {
         lockHasDB = st.hasDB;
         lockPortable = st.portable;
-        $("lockSubtitle").textContent = !st.portable ? "База заблокирована"
-            : st.hasDB ? "Введите пароль локальной базы"
-            : "Придумайте пароль для шифрования базы (минимум 8 символов)";
-        $("lockPass").style.display = st.portable ? "block" : "none";
-        $("lockPass2").style.display = st.portable && !st.hasDB ? "block" : "none";
-        $("lockBtn").textContent = !st.portable ? "Продолжить" : st.hasDB ? "Открыть" : "Создать базу";
+        lockLegacy = st.legacy;
+        const creating = !st.hasDB;
+        const needPass = !st.legacy;
+        $("lockSubtitle").textContent = st.legacy
+            ? "База старого формата (без мастер-пароля). Очистите её и создайте заново — документы снова синхронизируются с Outline."
+            : creating
+            ? "Придумайте мастер-пароль (минимум 8 символов). Сменить его можно будет только очистив базу."
+            : "Введите мастер-пароль";
+        $("lockPass").style.display = needPass ? "block" : "none";
+        $("lockPass2").style.display = (!st.legacy && creating) ? "block" : "none";
+        $("lockBtn").textContent = st.legacy ? "Очистить и создать заново" : creating ? "Создать базу" : "Открыть";
+        $("lockReset").style.display = (!st.legacy && !creating) ? "block" : "none";
+        $("lockError").textContent = "";
+        $("setupScreen").style.display = "none";
+        $("mainScreen").style.display = "none";
         $("lockScreen").style.display = "flex";
-        if (st.portable) $("lockPass").focus();
+        if (needPass) $("lockPass").focus();
         return;
     }
+    $("lockScreen").style.display = "none";
     const s = await go().GetSettings();
     if (s && s.apiURL && s.apiKey) {
         $("apiUrl").value = s.apiURL;
         $("apiKey").value = s.apiKey;
         enterMain();
+    } else {
+        $("setupScreen").style.display = "flex";
     }
 }
 
 async function unlockDB() {
-    const pass = lockPortable ? $("lockPass").value : "";
+    if (lockLegacy) {
+        const btn = $("lockBtn");
+        btn.disabled = true;
+        try {
+            await go().ResetApp();
+            await bootstrap(true);
+        } catch (err) {
+            $("lockError").textContent = String(err);
+        } finally {
+            btn.disabled = false;
+        }
+        return;
+    }
+    const passVisible = $("lockPass").style.display !== "none";
+    const pass = passVisible ? $("lockPass").value : "";
     $("lockError").textContent = "";
-    if (lockPortable && !lockHasDB && pass !== $("lockPass2").value) {
+    if (!lockHasDB && pass !== $("lockPass2").value) {
         $("lockError").textContent = "Пароли не совпадают";
         return;
     }
@@ -317,6 +340,20 @@ async function unlockDB() {
         await go().UnlockDB(pass);
         $("lockScreen").style.display = "none";
         $("lockPass").value = ""; $("lockPass2").value = "";
+        await bootstrap(true);
+    } catch (err) {
+        $("lockError").textContent = String(err);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function resetFromLock() {
+    if (!window.confirm("Удалить локальную базу и мастер-пароль? Документы в Outline не пострадают и синхронизируются заново.")) return;
+    const btn = $("lockReset");
+    btn.disabled = true;
+    try {
+        await go().ResetApp();
         await bootstrap(true);
     } catch (err) {
         $("lockError").textContent = String(err);
