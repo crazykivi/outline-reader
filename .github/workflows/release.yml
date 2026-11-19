@@ -67,8 +67,8 @@ jobs:
 
       - name: Wails build
         env:
-          CGO_ENABLED: 1
-        run: wails build -clean -trimpath -tags sqlite_fts5 -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}"
+          CGO_ENABLED: 0
+        run: wails build -clean -trimpath -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}"
       
       - name: List build output
         shell: pwsh
