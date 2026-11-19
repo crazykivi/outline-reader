@@ -471,7 +471,7 @@ mark.find-hit.current {
 .toc-h3 { padding-left: 28px; font-size: 12px; }
 #forwardBtn, #backBtn, .btn-icon { border: none; background: none; }
 .btn-icon.active { color: var(--accent);}
-.doc-viewer.toc-open { padding: 36px 10px 80px 0px; }
+.doc-viewer.toc-open { padding: 36px 10px 80px 10px; }
 
 .side-status{display:inline-flex;align-items:center;gap:6px;min-width:0}
 .status-text{font-size:11px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
