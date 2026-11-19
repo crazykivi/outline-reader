@@ -390,9 +390,8 @@ func (a *App) SetConnection(apiURL, apiKey string) error {
 	if err != nil {
 		return fmt.Errorf("некорректный URL сервера")
 	}
-	host := u.Hostname()
-	if u.Scheme != "https" && host != "localhost" && host != "127.0.0.1" && host != "::1" {
-		return fmt.Errorf("разрешён только https (или loopback для локального сервера)")
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("укажите корректный URL: ожидается http:// или https://")
 	}
 	apiKey = strings.TrimSpace(apiKey)
 	if apiURL == "" || apiKey == "" {
