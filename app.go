@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -37,6 +38,11 @@ type App struct {
 	portable bool
 	version  string
 	ctx      context.Context
+}
+
+type unlockGuard struct {
+	Fails int   `json:"fails"`
+	Until int64 `json:"until"`
 }
 
 func NewApp() *App { return &App{} }
@@ -95,6 +101,51 @@ func (a *App) openDB(keyHex string) error {
 	}
 	log.Printf("[APP] база открыта, portable=%v", a.portable)
 	return nil
+}
+
+func (a *App) guardPath() string { return filepath.Join(a.dataDir, "unlock.guard") }
+
+func (a *App) readGuard() unlockGuard {
+	var g unlockGuard
+	if b, err := os.ReadFile(a.guardPath()); err == nil {
+		_ = json.Unmarshal(b, &g)
+	}
+	return g
+}
+
+func (a *App) writeGuard(g unlockGuard) {
+	if b, err := json.Marshal(g); err == nil {
+		_ = os.WriteFile(a.guardPath(), b, 0o600)
+	}
+}
+
+func (a *App) clearGuard() { _ = os.Remove(a.guardPath()) }
+
+func guardDelay(fails int) time.Duration {
+	if fails <= 2 {
+		return 0
+	}
+	d := 5 * time.Second
+	for i := 3; i < fails && d < 5*time.Minute; i++ {
+		d *= 2
+	}
+	if d > 5*time.Minute {
+		d = 5 * time.Minute
+	}
+	return d
+}
+
+func (a *App) UnlockRetryAfter() int {
+	if err := a.ensure(); err != nil {
+		return 0
+	}
+	a.opMu.Lock()
+	defer a.opMu.Unlock()
+	rem := a.readGuard().Until - time.Now().Unix()
+	if rem < 0 {
+		rem = 0
+	}
+	return int(rem)
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -209,6 +260,9 @@ func (a *App) UnlockDB(passphrase string) error {
 	if a.getDB() != nil {
 		return nil
 	}
+	if g := a.readGuard(); time.Now().Unix() < g.Until {
+		return fmt.Errorf("слишком много попыток, повторите через %d с", g.Until-time.Now().Unix())
+	}
 	if !dbFileExists(a.dbPath) {
 		if len(passphrase) < 8 {
 			return fmt.Errorf("мастер-пароль должен быть не короче 8 символов")
@@ -217,7 +271,11 @@ func (a *App) UnlockDB(passphrase string) error {
 		if err != nil {
 			return err
 		}
-		return a.openDB(keyHex)
+		if err := a.openDB(keyHex); err != nil {
+			return err
+		}
+		a.clearGuard()
+		return nil
 	}
 	if !crypto.HasMasterSalt(a.dataDir) {
 		return fmt.Errorf("база создана без мастер-пароля (старый формат): очистите локальную базу и создайте заново")
@@ -230,8 +288,15 @@ func (a *App) UnlockDB(passphrase string) error {
 		return err
 	}
 	if err := a.openDB(keyHex); err != nil {
+		g := a.readGuard()
+		g.Fails++
+		sec := int64(guardDelay(g.Fails) / time.Second)
+		g.Until = time.Now().Unix() + sec
+		a.writeGuard(g)
+		log.Printf("[AUTH] неверный мастер-пароль, попытка %d, блокировка %d с", g.Fails, sec)
 		return fmt.Errorf("неверный мастер-пароль или база повреждена")
 	}
+	a.clearGuard()
 	return nil
 }
 
@@ -753,6 +818,7 @@ func (a *App) ResetApp() error {
 	}
 	_ = os.Remove(filepath.Join(a.dataDir, "db.salt"))
 	_ = os.Remove(filepath.Join(a.dataDir, "db.key"))
+	_ = os.Remove(a.guardPath())
 	log.Printf("[APP] storage reset, мастер-пароль будет задан заново")
 	return nil
 }

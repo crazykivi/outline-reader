@@ -47,3 +47,5 @@ export function SyncDocuments():Promise<main.SyncResult>;
 export function ToggleFavorite(arg1:string):Promise<boolean>;
 
 export function UnlockDB(arg1:string):Promise<void>;
+
+export function UnlockRetryAfter():Promise<number>;

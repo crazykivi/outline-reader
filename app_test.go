@@ -440,3 +440,21 @@ func TestServeImageFromCacheOffline(t *testing.T) {
 	a.imageMiddleware(http.NotFoundHandler()).ServeHTTP(rec2, req2)
 	assert.Equal(t, http.StatusNotFound, rec2.Code)
 }
+
+func TestUnlockProgressiveThrottle(t *testing.T) {
+	_, srv := newFakeOutline(t)
+	a := newTestApp(t)
+	require.NoError(t, a.SetConnection(srv.URL, "good"))
+	require.NoError(t, a.LockApp())
+
+	require.Error(t, a.UnlockDB("wrong-pass-1"))
+	require.Error(t, a.UnlockDB("wrong-pass-2"))
+	assert.Equal(t, 0, a.UnlockRetryAfter())
+
+	require.Error(t, a.UnlockDB("wrong-pass-3"))
+	assert.Greater(t, a.UnlockRetryAfter(), 0)
+
+	err := a.UnlockDB("test-master-pass")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "слишком много")
+}

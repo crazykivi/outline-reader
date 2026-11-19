@@ -89,3 +89,7 @@ export function ToggleFavorite(arg1) {
 export function UnlockDB(arg1) {
   return window['go']['main']['App']['UnlockDB'](arg1);
 }
+
+export function UnlockRetryAfter() {
+  return window['go']['main']['App']['UnlockRetryAfter']();
+}
