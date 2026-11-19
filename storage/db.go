@@ -52,6 +52,7 @@ type Settings struct {
 type SyncState struct {
 	ID       uint `gorm:"primaryKey"`
 	LastSync time.Time
+	LastFull time.Time
 	Added    int
 	Updated  int
 	Deleted  int
@@ -109,16 +110,17 @@ func (d *DB) initFTS() bool {
 		d.dropFTSTriggers()
 		return false
 	}
+	d.dropFTSTriggers()
 	for _, q := range []string{
-		`CREATE TRIGGER IF NOT EXISTS docs_ai AFTER INSERT ON documents BEGIN
+		`CREATE TRIGGER docs_ai AFTER INSERT ON documents BEGIN
 			INSERT INTO docs_fts(rowid, title, text) VALUES (new.id, new.title, new.text);
 		END`,
-		`CREATE TRIGGER IF NOT EXISTS docs_ad AFTER DELETE ON documents BEGIN
+		`CREATE TRIGGER docs_ad AFTER DELETE ON documents BEGIN
 			INSERT INTO docs_fts(docs_fts, rowid, title, text) VALUES('delete', old.id, old.title, old.text);
 		END`,
-		`CREATE TRIGGER IF NOT EXISTS docs_au AFTER UPDATE ON documents BEGIN
+		`CREATE TRIGGER docs_au AFTER UPDATE OF title, text ON documents BEGIN
 			INSERT INTO docs_fts(docs_fts, rowid, title, text) VALUES('delete', old.id, old.title, old.text);
-			INSERT INTO docs_fts(rowid, title, text) VALUES (new.id, new.title, new.text);
+			INSERT INTO docs_fts(rowid, title, text) VALUES(new.id, new.title, new.text);
 		END`,
 	} {
 		if err := d.db.Exec(q).Error; err != nil {
@@ -225,28 +227,6 @@ func MigratePlaintext(dbPath, keyHex string) error {
 	}
 	log.Printf("[DB] существующий кэш зашифрован, docs=%d", len(docs))
 	return nil
-}
-
-func (d *DB) ReplaceAll(cols []Collection, docs []Document) error {
-	return d.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("1 = 1").Delete(&Document{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("1 = 1").Delete(&Collection{}).Error; err != nil {
-			return err
-		}
-		if len(cols) > 0 {
-			if err := tx.Create(&cols).Error; err != nil {
-				return err
-			}
-		}
-		if len(docs) > 0 {
-			if err := tx.CreateInBatches(&docs, 200).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
 }
 
 func (d *DB) GetCollections() ([]Collection, error) {

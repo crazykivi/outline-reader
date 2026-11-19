@@ -70,7 +70,7 @@ export namespace main {
 	}
 	export class ConnectionSettings {
 	    apiURL: string;
-	    apiKey: string;
+	    hasKey: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionSettings(source);
@@ -79,7 +79,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.apiURL = source["apiURL"];
-	        this.apiKey = source["apiKey"];
+	        this.hasKey = source["hasKey"];
 	    }
 	}
 	export class StorageInfo {
@@ -123,6 +123,7 @@ export namespace main {
 	    added: number;
 	    updated: number;
 	    deleted: number;
+	    meta: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new SyncResult(source);
@@ -134,6 +135,7 @@ export namespace main {
 	        this.added = source["added"];
 	        this.updated = source["updated"];
 	        this.deleted = source["deleted"];
+	        this.meta = source["meta"];
 	    }
 	}
 	export class SyncStats {

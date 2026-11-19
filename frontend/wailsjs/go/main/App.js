@@ -6,10 +6,6 @@ export function AppVersion() {
   return window['go']['main']['App']['AppVersion']();
 }
 
-export function CheckForUpdates() {
-  return window['go']['main']['App']['CheckForUpdates']();
-}
-
 export function Context() {
   return window['go']['main']['App']['Context']();
 }
@@ -54,6 +50,10 @@ export function LockApp() {
   return window['go']['main']['App']['LockApp']();
 }
 
+export function NotifyActivity() {
+  return window['go']['main']['App']['NotifyActivity']();
+}
+
 export function ResetApp() {
   return window['go']['main']['App']['ResetApp']();
 }
@@ -80,6 +80,10 @@ export function StorageStatus() {
 
 export function SyncDocuments() {
   return window['go']['main']['App']['SyncDocuments']();
+}
+
+export function SyncDocumentsFull() {
+  return window['go']['main']['App']['SyncDocumentsFull']();
 }
 
 export function ToggleFavorite(arg1) {

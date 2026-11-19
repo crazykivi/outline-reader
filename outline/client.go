@@ -2,6 +2,7 @@ package outline
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -43,24 +44,22 @@ func NewClient(baseURL, apiKey string) *Client {
 	return &Client{baseURL: baseURL, apiKey: apiKey, hc: &http.Client{Timeout: 60 * time.Second}}
 }
 
-func (c *Client) post(method string, payload any, out any) error {
+func (c *Client) post(ctx context.Context, method string, payload any, out any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/"+method, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/"+method, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("%s: %w", method, err)
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
 		var e struct {
 			Error   string `json:"error"`
@@ -76,7 +75,6 @@ func (c *Client) post(method string, payload any, out any) error {
 		}
 		return fmt.Errorf("%s: %s", method, msg)
 	}
-
 	var env struct {
 		Data json.RawMessage `json:"data"`
 	}
@@ -92,27 +90,15 @@ func (c *Client) post(method string, payload any, out any) error {
 	return nil
 }
 
-func (c *Client) CheckAuth() error {
-	return c.post("auth.info", map[string]any{}, nil)
+func (c *Client) CheckAuth(ctx context.Context) error {
+	return c.post(ctx, "auth.info", map[string]any{}, nil)
 }
 
-func (c *Client) Collections() ([]Collection, error) {
-	var out []Collection
-	err := c.post("collections.list", map[string]any{"limit": 100}, &out)
-	return out, err
-}
-
-func (c *Client) CollectionTree(id string) ([]NavNode, error) {
-	var out []NavNode
-	err := c.post("collections.documents", map[string]any{"id": id}, &out)
-	return out, err
-}
-
-func (c *Client) AllDocuments() ([]Document, error) {
-	var all []Document
-	for offset := 0; offset < 100000; offset += 100 {
-		var page []Document
-		if err := c.post("documents.list", map[string]any{"limit": 100, "offset": offset}, &page); err != nil {
+func (c *Client) Collections(ctx context.Context) ([]Collection, error) {
+	var all []Collection
+	for offset := 0; ; offset += 100 {
+		var page []Collection
+		if err := c.post(ctx, "collections.list", map[string]any{"limit": 100, "offset": offset}, &page); err != nil {
 			return nil, err
 		}
 		all = append(all, page...)
@@ -123,11 +109,32 @@ func (c *Client) AllDocuments() ([]Document, error) {
 	return all, nil
 }
 
-func (c *Client) UpdatedSince(since time.Time) ([]Document, error) {
-	var out []Document
-	for offset := 0; offset < 100000; offset += 100 {
+func (c *Client) CollectionTree(ctx context.Context, id string) ([]NavNode, error) {
+	var out []NavNode
+	err := c.post(ctx, "collections.documents", map[string]any{"id": id}, &out)
+	return out, err
+}
+
+func (c *Client) AllDocuments(ctx context.Context) ([]Document, error) {
+	var all []Document
+	for offset := 0; ; offset += 100 {
 		var page []Document
-		if err := c.post("documents.list", map[string]any{
+		if err := c.post(ctx, "documents.list", map[string]any{"limit": 100, "offset": offset}, &page); err != nil {
+			return nil, err
+		}
+		all = append(all, page...)
+		if len(page) < 100 {
+			break
+		}
+	}
+	return all, nil
+}
+
+func (c *Client) UpdatedSince(ctx context.Context, since time.Time) ([]Document, error) {
+	var out []Document
+	for offset := 0; ; offset += 100 {
+		var page []Document
+		if err := c.post(ctx, "documents.list", map[string]any{
 			"sort": "updatedAt", "direction": "DESC", "limit": 100, "offset": offset,
 		}, &page); err != nil {
 			return nil, err
@@ -147,9 +154,32 @@ func (c *Client) UpdatedSince(since time.Time) ([]Document, error) {
 	return out, nil
 }
 
-func (c *Client) Attachment(id string) (*http.Response, error) {
+func (c *Client) Drafts(ctx context.Context) ([]Document, error) {
+	var all []Document
+	for offset := 0; ; offset += 100 {
+		var page []Document
+		if err := c.post(ctx, "documents.drafts", map[string]any{"limit": 100, "offset": offset}, &page); err != nil {
+			return nil, err
+		}
+		all = append(all, page...)
+		if len(page) < 100 {
+			break
+		}
+	}
+	return all, nil
+}
+
+func (c *Client) DocumentInfo(ctx context.Context, id string) (*Document, error) {
+	var out Document
+	if err := c.post(ctx, "documents.info", map[string]any{"id": id}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) Attachment(ctx context.Context, id string) (*http.Response, error) {
 	u := c.baseURL + "/api/attachments.redirect?id=" + url.QueryEscape(id)
-	req, err := http.NewRequest(http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -15,7 +15,6 @@ let historyIndex = -1;
 let skipHistoryPush = false;
 let currentOID = null;
 let currentDocUpdated = "";
-let updateTimer = null;
 let searchTimer = null;
 let toastTimer = null;
 let fullWidth = localStorage.getItem("or.fullWidth") === "1";
@@ -23,15 +22,17 @@ let tocOpen = localStorage.getItem("or.tocOpen") === "1";
 let fontScale = parseFloat(localStorage.getItem("or.fontScale") || "1");
 let lastTreeClick = { oid: null, time: 0 };
 let currentDocUrl = "";
-let lockHasDB = false, lockPortable = false, lockLegacy = false, idleTimer = null;
+let lockHasDB = false, lockPortable = false, lockLegacy = false;
 let isPortable = false, captureProtect = false;
 let favorites = [];
 let activeSource = "tree";
 let clipTimer = null;
 let syncing = false;
 let guardTimer = null, guardLeft = 0;
+let cachedApiURL = "";
+let connHasKey = false;
+let lastActivitySent = 0;
 
-const IDLE_LOCK_MS = 5 * 60 * 1000;
 const palette = { open: false, items: [], sel: 0, timer: null };
 
 const find = {
@@ -41,7 +42,7 @@ const find = {
 };
 const FIND_LIMIT = 10000;
 
-try { expanded = new Set(JSON.parse(localStorage.getItem("or.expanded") || "[]")); } catch (e) {}
+try { expanded = new Set(JSON.parse(localStorage.getItem("or.expanded") || "[]")); } catch (e) { }
 if (!(fontScale >= 0.7 && fontScale <= 2.0)) fontScale = 1;
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -52,6 +53,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     initResizer();
     try {
         await waitBindings();
+        bindBackendEvents();
         await bootstrap(true);
     } catch (err) {
         console.error("[UI] bootstrap:", err);
@@ -73,6 +75,7 @@ function waitBindings(timeoutMs = 5000) {
 function bindUI() {
     $("connectBtn").addEventListener("click", connect);
     $("syncBtn").addEventListener("click", syncNow);
+    $("menuSyncFull").addEventListener("click", () => { closeMenu(); syncFullNow(); });
     $("themeBtn").addEventListener("click", () => {
         applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
     });
@@ -256,7 +259,7 @@ function bindUI() {
     });
     ["mousemove", "mousedown", "keydown", "wheel"].forEach((ev) =>
         document.addEventListener(ev, () => {
-            if ($("mainScreen").style.display !== "none") resetIdle();
+            if ($("mainScreen").style.display !== "none") pingActivity();
         }, { passive: true }));
 
     $("docLink").addEventListener("click", (e) => {
@@ -292,8 +295,8 @@ async function bootstrap(autoUnlock) {
         $("lockSubtitle").textContent = st.legacy
             ? "База старого формата (без мастер-пароля). Очистите её и создайте заново — документы снова синхронизируются с Outline."
             : creating
-            ? "Придумайте мастер-пароль (минимум 8 символов). Сменить его можно будет только очистив базу."
-            : "Введите мастер-пароль";
+                ? "Придумайте мастер-пароль (минимум 8 символов). Сменить его можно будет только очистив базу."
+                : "Введите мастер-пароль";
         $("lockPass").style.display = needPass ? "block" : "none";
         $("lockPass2").style.display = (!st.legacy && creating) ? "block" : "none";
         $("lockBtn").textContent = st.legacy ? "Очистить и создать заново" : creating ? "Создать базу" : "Открыть";
@@ -303,15 +306,15 @@ async function bootstrap(autoUnlock) {
         $("mainScreen").style.display = "none";
         $("lockScreen").style.display = "flex";
         if (needPass) $("lockPass").focus();
-        go().UnlockRetryAfter().then(startGuardCountdown).catch(() => {});
+        go().UnlockRetryAfter().then(startGuardCountdown).catch(() => { });
         return;
     }
     $("lockScreen").style.display = "none";
     startGuardCountdown(0);
     const s = await go().GetSettings();
-    if (s && s.apiURL && s.apiKey) {
+    if (s && s.apiURL && s.hasKey) {
+        cachedApiURL = s.apiURL;
         $("apiUrl").value = s.apiURL;
-        $("apiKey").value = s.apiKey;
         enterMain();
     } else {
         $("setupScreen").style.display = "flex";
@@ -394,9 +397,7 @@ async function resetFromLock() {
     }
 }
 
-async function lockNow() {
-    if ($("mainScreen").style.display === "none") return;
-    try { await go().LockApp(); } catch (e) {}
+function clearMainUI() {
     currentOID = null;
     currentDocUpdated = "";
     currentDocUrl = "";
@@ -416,14 +417,21 @@ async function lockNow() {
     $("updateNotification").style.display = "none";
     $("toast").style.display = "none";
     $("mainScreen").style.display = "none";
-    if (updateTimer) { clearInterval(updateTimer); updateTimer = null; }
-    clearTimeout(idleTimer);
+    clearTimeout(searchTimer);
+}
+
+async function lockNow() {
+    if ($("mainScreen").style.display === "none") return;
+    try { await go().LockApp(); } catch (e) { }
+    clearMainUI();
     await bootstrap(false);
 }
 
-function resetIdle() {
-    clearTimeout(idleTimer);
-    idleTimer = setTimeout(lockNow, IDLE_LOCK_MS);
+function pingActivity() {
+    const now = Date.now();
+    if (now - lastActivitySent < 10000) return;
+    lastActivitySent = now;
+    go().NotifyActivity().catch(() => { });
 }
 
 /* ---------- Экраны / подключение ---------- */
@@ -433,10 +441,7 @@ function enterMain() {
     $("lockScreen").style.display = "none";
     $("mainScreen").style.display = "flex";
     loadTree();
-    if (updateTimer) clearInterval(updateTimer);
-    updateTimer = setInterval(checkUpdates, 60000);
-    checkUpdates();
-    resetIdle();
+    go().NotifyActivity().catch(() => { });
     initCapture();
 }
 
@@ -452,6 +457,8 @@ async function connect() {
         await go().SetConnection(url, key);
         btn.textContent = "Синхронизация...";
         await go().SyncDocuments();
+        cachedApiURL = url;
+        $("apiKey").value = "";
         setNet(true);
         enterMain();
     } catch (err) {
@@ -481,11 +488,14 @@ function closeMenu() { $("docMenu").style.display = "none"; }
 async function openConnModal() {
     $("connError").textContent = "";
     $("connModal").style.display = "flex";
+    connHasKey = false;
     try {
         const s = await go().GetSettings();
         $("connUrl").value = (s && s.apiURL) || "";
-        $("connKey").value = (s && s.apiKey) || "";
-    } catch (err) { /* покажем пустые поля */ }
+        connHasKey = !!(s && s.hasKey);
+    } catch (err) { }
+    $("connKey").value = "";
+    $("connKey").placeholder = connHasKey ? "Ключ сохранён — пусто = не менять" : "ol_api_...";
     $("connUrl").focus();
 }
 
@@ -495,7 +505,7 @@ async function saveConnection() {
     const url = $("connUrl").value.trim();
     const key = $("connKey").value.trim();
     $("connError").textContent = "";
-    if (!url || !key) { $("connError").textContent = "Заполните URL сервера и API-ключ"; return; }
+    if (!url || (!key && !connHasKey)) { $("connError").textContent = "Заполните URL сервера и API-ключ"; return; }
     const btn = $("connSave");
     btn.disabled = true;
     try {
@@ -503,6 +513,9 @@ async function saveConnection() {
         await go().SetConnection(url, key);
         btn.textContent = "Синхронизация...";
         const res = await go().SyncDocuments();
+        cachedApiURL = url;
+        connHasKey = true;
+        $("connKey").value = "";
         setNet(true);
         closeConnModal();
         showToast("Подключение обновлено", "Документов в базе: " + res.total, false);
@@ -526,8 +539,6 @@ async function doReset() {
     btn.disabled = true;
     btn.textContent = "Очистка...";
     try {
-        if (updateTimer) { clearInterval(updateTimer); updateTimer = null; }
-        clearTimeout(idleTimer);
         clearTimeout(searchTimer);
         await go().ResetApp();
         ["or.expanded", "or.theme", "or.sideWidth", "or.fullWidth", "or.fontScale", "or.tocOpen", "or.captureProtect"]
@@ -548,7 +559,7 @@ function initCapture() {
     if (!go().SetCaptureProtection) return;
     go().SetCaptureProtection(on).then((ok) => {
         captureProtect = ok && on;
-    }).catch(() => {});
+    }).catch(() => { });
 }
 
 function toggleCapture() {
@@ -574,7 +585,7 @@ function scheduleClipClear(text) {
         try {
             const cur = await window.runtime.ClipboardGetText();
             if (cur === text) await window.runtime.ClipboardSetText("");
-        } catch (e) {}
+        } catch (e) { }
     }, 30000);
 }
 
@@ -637,7 +648,7 @@ async function updateStatus() {
         if (st.deleted) parts.push("−" + st.deleted);
         $("syncDelta").textContent = parts.join(" ");
         $("syncDelta").title = "Новых: " + st.added + ", обновлено: " + st.updated + ", удалено: " + st.deleted;
-    } catch (e) {}
+    } catch (e) { }
 }
 
 function pluralDocs(n) {
@@ -831,7 +842,7 @@ async function paletteDefault() {
         for (const d of rec || []) { if (!seen.has(d.OutlineID)) palette.items.push({ doc: d, fav: false }); }
         palette.sel = 0;
         renderPalette("");
-    } catch (e) {}
+    } catch (e) { }
 }
 
 async function paletteSearch(q) {
@@ -841,7 +852,7 @@ async function paletteSearch(q) {
         palette.items = (res || []).slice(0, 12).map((d) => ({ doc: d, fav: false }));
         palette.sel = 0;
         renderPalette(q);
-    } catch (e) {}
+    } catch (e) { }
 }
 
 function renderPalette(q) {
@@ -897,7 +908,6 @@ async function openDocument(oid, query, source) {
     activeSource = source === "fav" ? "fav" : "tree";
     try {
         const doc = await go().GetDocument(oid);
-        const s = await go().GetSettings().catch(() => null);
 
         if (!skipHistoryPush) {
             if (historyIndex < history.length - 1) {
@@ -914,8 +924,8 @@ async function openDocument(oid, query, source) {
         currentOID = oid;
         expandAncestors(oid);
         renderTree();
-        showDoc(doc, (s && s.apiURL) || "");
-        go().IsFavorite(oid).then(updateFavBtn).catch(() => {});
+        showDoc(doc, cachedApiURL);
+        go().IsFavorite(oid).then(updateFavBtn).catch(() => { });
         if (query) {
             openFindBar(query);
         } else if (find.open) {
@@ -954,8 +964,7 @@ async function refreshCurrentDoc() {
     if ((doc.UpdatedAt || "") === currentDocUpdated) return;
     const viewer = document.querySelector(".viewer");
     const scroll = viewer.scrollTop;
-    const s = await go().GetSettings().catch(() => null);
-    showDoc(doc, (s && s.apiURL) || "");
+    showDoc(doc, cachedApiURL);
     viewer.scrollTop = scroll;
     if (find.open) runFind();
     showToast("Документ обновлён", doc.Title || "", false);
@@ -1457,28 +1466,59 @@ async function syncNow() {
     }
 }
 
-async function checkUpdates() {
-    if (syncing) return;
-    try {
-        const titles = await go().CheckForUpdates();
-        setNet(true);
-        if (titles && titles.length) {
-            const list = $("updatedDocs");
-            list.innerHTML = "";
-            titles.forEach((t) => {
-                const li = document.createElement("li");
-                li.textContent = t;
-                list.appendChild(li);
-            });
-            $("updateNotification").style.display = "block";
-            setTimeout(() => { $("updateNotification").style.display = "none"; }, 6000);
+function bindBackendEvents() {
+    window.runtime.EventsOn("app:locked", () => {
+        if ($("mainScreen").style.display === "none") return;
+        clearMainUI();
+        bootstrap(false);
+    });
+    window.runtime.EventsOn("sync:state", async (st) => {
+        if (!st) return;
+        setNet(!!st.ok);
+        if ($("mainScreen").style.display === "none" || !st.ok) return;
+        const changed = (st.added || 0) + (st.updated || 0) + (st.deleted || 0) + (st.meta || 0);
+        if (st.titles && st.titles.length) showUpdatedDocs(st.titles);
+        if (changed > 0) {
             await loadTree();
-            updateStatus();
             await refreshCurrentDoc();
         }
+        updateStatus();
+    });
+}
+
+function showUpdatedDocs(titles) {
+    const list = $("updatedDocs");
+    list.innerHTML = "";
+    titles.forEach((t) => {
+        const li = document.createElement("li");
+        li.textContent = t;
+        list.appendChild(li);
+    });
+    $("updateNotification").style.display = "block";
+    setTimeout(() => { $("updateNotification").style.display = "none"; }, 6000);
+}
+
+async function syncFullNow() {
+    if (syncing) return;
+    syncing = true;
+    const btn = $("syncBtn");
+    btn.classList.add("spin"); btn.disabled = true;
+    try {
+        const res = await go().SyncDocumentsFull();
+        setNet(true);
+        showToast("Полная синхронизация завершена", "Документов: " + res.total + " · " + fmtDelta(res), false);
+        await loadTree();
+        updateStatus();
+        await refreshCurrentDoc();
     } catch (err) {
-        setNet(false);
-        console.error("[UI] update check:", err);
+        const msg = String(err);
+        if (!msg.includes("уже выполняется")) {
+            setNet(false);
+            showToast("Ошибка синхронизации", msg, true);
+        }
+    } finally {
+        syncing = false;
+        btn.classList.remove("spin"); btn.disabled = false;
     }
 }
 
@@ -1530,8 +1570,8 @@ function applyFontScale(v) {
     updateZoomIndicator();
 }
 
-function zoomIn()    { applyFontScale(fontScale + 0.1); }
-function zoomOut()   { applyFontScale(fontScale - 0.1); }
+function zoomIn() { applyFontScale(fontScale + 0.1); }
+function zoomOut() { applyFontScale(fontScale - 0.1); }
 function zoomReset() { applyFontScale(1); }
 
 function updateZoomIndicator() {

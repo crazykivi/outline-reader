@@ -6,8 +6,6 @@ import {main} from '../models';
 
 export function AppVersion():Promise<string>;
 
-export function CheckForUpdates():Promise<Array<string>>;
-
 export function Context():Promise<context.Context>;
 
 export function GetDocument(arg1:string):Promise<storage.Document>;
@@ -30,6 +28,8 @@ export function IsFavorite(arg1:string):Promise<boolean>;
 
 export function LockApp():Promise<void>;
 
+export function NotifyActivity():Promise<void>;
+
 export function ResetApp():Promise<void>;
 
 export function SearchDocuments(arg1:string):Promise<Array<storage.Document>>;
@@ -43,6 +43,8 @@ export function StorageInfo():Promise<main.StorageInfo>;
 export function StorageStatus():Promise<main.StorageStatus>;
 
 export function SyncDocuments():Promise<main.SyncResult>;
+
+export function SyncDocumentsFull():Promise<main.SyncResult>;
 
 export function ToggleFavorite(arg1:string):Promise<boolean>;
 

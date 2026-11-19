@@ -43,6 +43,7 @@ func main() {
 
 	app := NewApp()
 	app.version = version
+	app.uiEvents = true
 	if err := app.ensure(); err != nil {
 		log.Printf("[APP] init: %v", err)
 	}

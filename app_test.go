@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -15,25 +17,61 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"outline-reader/crypto"
 	"outline-reader/storage"
 )
 
 type fakeOutline struct {
-	mu         sync.Mutex
-	docs       []map[string]any
-	unexpected []string
+	mu          sync.Mutex
+	docs        []map[string]any
+	drafts      []map[string]any
+	collections []map[string]any
+	unexpected  []string
+	block       chan struct{}
+	entered     chan struct{}
+	listCalls   int
+	infoCalls   int
+}
+
+func num(v any) float64 {
+	n, _ := v.(float64)
+	return n
 }
 
 func newFakeOutline(t *testing.T) (*fakeOutline, *httptest.Server) {
 	t.Helper()
 	ts := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
-	f := &fakeOutline{docs: []map[string]any{
-		{"id": "d1", "title": "Root", "text": "# Hello", "url": "/doc/root-abc123", "urlId": "abc123", "parentDocumentId": nil, "collectionId": "c1", "updatedAt": ts},
-		{"id": "d2", "title": "Child", "text": "child text", "url": "/doc/child-def456", "urlId": "def456", "parentDocumentId": "d1", "collectionId": "c1", "updatedAt": ts},
-	}}
+	f := &fakeOutline{
+		docs: []map[string]any{
+			{"id": "d1", "title": "Root", "text": "# Hello", "url": "/doc/root-abc123", "urlId": "abc123", "parentDocumentId": nil, "collectionId": "c1", "updatedAt": ts},
+			{"id": "d2", "title": "Child", "text": "child text", "url": "/doc/child-def456", "urlId": "def456", "parentDocumentId": "d1", "collectionId": "c1", "updatedAt": ts},
+		},
+		collections: []map[string]any{{"id": "c1", "name": "Wiki"}},
+		entered:     make(chan struct{}, 1),
+	}
 	write := func(w http.ResponseWriter, v any) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": v})
+	}
+	payload := func(r *http.Request) map[string]any {
+		var p map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&p)
+		return p
+	}
+	page := func(items []map[string]any, p map[string]any) []map[string]any {
+		offset := int(num(p["offset"]))
+		limit := int(num(p["limit"]))
+		if limit <= 0 {
+			limit = 100
+		}
+		if offset > len(items) {
+			offset = len(items)
+		}
+		end := offset + limit
+		if end > len(items) {
+			end = len(items)
+		}
+		return items[offset:end]
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/auth.info", func(w http.ResponseWriter, r *http.Request) {
@@ -45,16 +83,101 @@ func newFakeOutline(t *testing.T) (*fakeOutline, *httptest.Server) {
 		write(w, map[string]any{})
 	})
 	mux.HandleFunc("/api/collections.list", func(w http.ResponseWriter, r *http.Request) {
-		write(w, []map[string]any{{"id": "c1", "name": "Wiki"}})
+		p := payload(r)
+		f.mu.Lock()
+		cols := append([]map[string]any(nil), f.collections...)
+		f.mu.Unlock()
+		write(w, page(cols, p))
 	})
 	mux.HandleFunc("/api/collections.documents", func(w http.ResponseWriter, r *http.Request) {
-		write(w, []map[string]any{{"id": "d1", "title": "Root", "url": "/doc/root-abc123",
-			"children": []map[string]any{{"id": "d2", "title": "Child", "url": "/doc/child-def456", "children": []any{}}}}})
+		p := payload(r)
+		id, _ := p["id"].(string)
+		f.mu.Lock()
+		docs := append([]map[string]any(nil), f.docs...)
+		f.mu.Unlock()
+		children := map[string][]map[string]any{}
+		var roots []map[string]any
+		for _, d := range docs {
+			if d["collectionId"] != id {
+				continue
+			}
+			n := map[string]any{"id": d["id"], "title": d["title"], "url": d["url"], "children": []map[string]any{}}
+			parent, _ := d["parentDocumentId"].(string)
+			if parent == "" {
+				roots = append(roots, n)
+			} else {
+				children[parent] = append(children[parent], n)
+			}
+		}
+		var attach func(ns []map[string]any)
+		attach = func(ns []map[string]any) {
+			for _, n := range ns {
+				kids := children[n["id"].(string)]
+				n["children"] = kids
+				attach(kids)
+			}
+		}
+		attach(roots)
+		write(w, roots)
 	})
 	mux.HandleFunc("/api/documents.list", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
-		defer f.mu.Unlock()
-		write(w, f.docs)
+		f.listCalls++
+		block := f.block
+		f.mu.Unlock()
+		if block != nil {
+			select {
+			case f.entered <- struct{}{}:
+			default:
+			}
+			select {
+			case <-block:
+			case <-r.Context().Done():
+				return
+			}
+		}
+		p := payload(r)
+		f.mu.Lock()
+		docs := append([]map[string]any(nil), f.docs...)
+		f.mu.Unlock()
+		if p["sort"] == "updatedAt" {
+			sort.Slice(docs, func(i, j int) bool {
+				a, _ := docs[i]["updatedAt"].(string)
+				b, _ := docs[j]["updatedAt"].(string)
+				return a > b
+			})
+		}
+		write(w, page(docs, p))
+	})
+	mux.HandleFunc("/api/documents.drafts", func(w http.ResponseWriter, r *http.Request) {
+		p := payload(r)
+		f.mu.Lock()
+		drafts := append([]map[string]any(nil), f.drafts...)
+		f.mu.Unlock()
+		write(w, page(drafts, p))
+	})
+	mux.HandleFunc("/api/documents.info", func(w http.ResponseWriter, r *http.Request) {
+		p := payload(r)
+		id, _ := p["id"].(string)
+		f.mu.Lock()
+		f.infoCalls++
+		for _, d := range f.docs {
+			if d["id"] == id {
+				f.mu.Unlock()
+				write(w, d)
+				return
+			}
+		}
+		for _, d := range f.drafts {
+			if d["id"] == id {
+				f.mu.Unlock()
+				write(w, d)
+				return
+			}
+		}
+		f.mu.Unlock()
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"ok":false,"error":"not_found"}`))
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -96,12 +219,17 @@ func TestSetConnectionValidationAndPersistence(t *testing.T) {
 	s, err := a.GetSettings()
 	require.NoError(t, err)
 	assert.Equal(t, srv1.URL, s.APIURL)
-	assert.Equal(t, "good", s.APIKey)
+	assert.True(t, s.HasKey)
 
-	require.NoError(t, a.SetConnection(srv2.URL, "good"))
+	require.NoError(t, a.SetConnection(srv2.URL, ""))
 	s, err = a.GetSettings()
 	require.NoError(t, err)
 	assert.Equal(t, srv2.URL, s.APIURL)
+	assert.True(t, s.HasKey)
+
+	raw, err := a.getDB().GetSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "good", crypto.DecryptIfPossible(raw.APIKey))
 }
 
 func TestSyncTreeSearchAndURLID(t *testing.T) {
@@ -138,14 +266,14 @@ func TestSyncTreeSearchAndURLID(t *testing.T) {
 	assert.Equal(t, "d2", hits[0].OutlineID)
 }
 
-func TestCheckForUpdatesAppliesChanges(t *testing.T) {
+func TestSyncUpdatedTitles(t *testing.T) {
 	f, srv := newFakeOutline(t)
 	a := newTestApp(t)
 	require.NoError(t, a.SetConnection(srv.URL, "good"))
-	_, err := a.SyncDocuments()
+	_, _, err := a.syncGuarded(false, true)
 	require.NoError(t, err)
 
-	titles, err := a.CheckForUpdates()
+	_, titles, err := a.syncGuarded(false, true)
 	require.NoError(t, err)
 	assert.Empty(t, titles)
 
@@ -154,14 +282,13 @@ func TestCheckForUpdatesAppliesChanges(t *testing.T) {
 	f.docs[0]["text"] = "# Updated"
 	f.mu.Unlock()
 
-	titles, err = a.CheckForUpdates()
+	_, titles, err = a.syncGuarded(false, true)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"Root"}, titles)
 
 	doc, err := a.GetDocument("d1")
 	require.NoError(t, err)
 	assert.Equal(t, "# Updated", doc.Text)
-	assert.Equal(t, "/doc/root-abc123", doc.Url)
 }
 
 func TestSyncWithoutURLField(t *testing.T) {
@@ -197,7 +324,7 @@ func TestResetAppWipesLocalOnly(t *testing.T) {
 	s, err := a.GetSettings()
 	require.NoError(t, err)
 	assert.Empty(t, s.APIURL)
-	assert.Empty(t, s.APIKey)
+	assert.False(t, s.HasKey)
 
 	tree, err := a.GetTree()
 	require.NoError(t, err)
@@ -240,7 +367,10 @@ func TestSettingsSurviveRestart(t *testing.T) {
 	s, err := b.GetSettings()
 	require.NoError(t, err)
 	assert.Equal(t, srv.URL, s.APIURL)
-	assert.Equal(t, "good", s.APIKey)
+	assert.True(t, s.HasKey)
+	raw, err := b.getDB().GetSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "good", crypto.DecryptIfPossible(raw.APIKey))
 
 	tree, err := b.GetTree()
 	require.NoError(t, err)
@@ -258,18 +388,12 @@ func TestSyncRemovesDeletedDocuments(t *testing.T) {
 	f.docs = f.docs[:1]
 	f.mu.Unlock()
 
-	titles, err := a.CheckForUpdates()
-	require.NoError(t, err)
-	assert.Empty(t, titles)
-
 	res, err := a.SyncDocuments()
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.Total)
 	assert.Equal(t, 1, res.Deleted)
-
 	_, err = a.GetDocument("d2")
 	assert.Error(t, err)
-
 	hits, err := a.SearchDocuments("child")
 	require.NoError(t, err)
 	assert.Empty(t, hits)
@@ -457,4 +581,137 @@ func TestUnlockProgressiveThrottle(t *testing.T) {
 	err := a.UnlockDB("test-master-pass")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "слишком много")
+}
+
+func TestCollectionsPagination(t *testing.T) {
+	f, srv := newFakeOutline(t)
+	f.mu.Lock()
+	f.docs = nil
+	f.collections = nil
+	for i := 0; i < 250; i++ {
+		f.collections = append(f.collections, map[string]any{"id": fmt.Sprintf("c%d", i), "name": fmt.Sprintf("Col %d", i)})
+	}
+	f.mu.Unlock()
+	a := newTestApp(t)
+	require.NoError(t, a.SetConnection(srv.URL, "good"))
+	_, err := a.SyncDocuments()
+	require.NoError(t, err)
+	tree, err := a.GetTree()
+	require.NoError(t, err)
+	assert.Len(t, tree, 250)
+}
+
+func TestIncrementalSyncSkipsUnchanged(t *testing.T) {
+	f, srv := newFakeOutline(t)
+	a := newTestApp(t)
+	require.NoError(t, a.SetConnection(srv.URL, "good"))
+	_, err := a.SyncDocuments()
+	require.NoError(t, err)
+
+	f.mu.Lock()
+	f.listCalls = 0
+	f.infoCalls = 0
+	f.docs[0]["updatedAt"] = time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	f.docs[0]["text"] = "# Changed"
+	f.mu.Unlock()
+
+	res, err := a.SyncDocuments()
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.Updated)
+	assert.Equal(t, 0, res.Added)
+
+	f.mu.Lock()
+	assert.Equal(t, 0, f.infoCalls)
+	assert.Equal(t, 1, f.listCalls)
+	f.mu.Unlock()
+
+	doc, err := a.GetDocument("d2")
+	require.NoError(t, err)
+	assert.Equal(t, "child text", doc.Text)
+}
+
+func TestDraftsSurviveSync(t *testing.T) {
+	f, srv := newFakeOutline(t)
+	f.mu.Lock()
+	f.drafts = []map[string]any{{"id": "dr1", "title": "Draft", "text": "draft text", "urlId": "dr1slug", "collectionId": "c1", "updatedAt": time.Now().UTC().Format(time.RFC3339)}}
+	f.mu.Unlock()
+	a := newTestApp(t)
+	require.NoError(t, a.SetConnection(srv.URL, "good"))
+	_, err := a.SyncDocuments()
+	require.NoError(t, err)
+	_, err = a.GetDocument("dr1")
+	require.NoError(t, err)
+	_, err = a.SyncDocuments()
+	require.NoError(t, err)
+	doc, err := a.GetDocument("dr1")
+	require.NoError(t, err)
+	assert.Equal(t, "draft text", doc.Text)
+}
+
+func TestLockDuringSyncIsInstant(t *testing.T) {
+	f, srv := newFakeOutline(t)
+	a := newTestApp(t)
+	require.NoError(t, a.SetConnection(srv.URL, "good"))
+
+	block := make(chan struct{})
+	f.mu.Lock()
+	f.block = block
+	f.mu.Unlock()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := a.SyncDocuments()
+		done <- err
+	}()
+
+	select {
+	case <-f.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("sync did not reach documents.list")
+	}
+
+	start := time.Now()
+	require.NoError(t, a.LockApp())
+	assert.Less(t, time.Since(start), 500*time.Millisecond)
+
+	close(block)
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("sync did not abort")
+	}
+
+	st, err := a.StorageStatus()
+	require.NoError(t, err)
+	assert.True(t, st.Locked)
+}
+
+func TestIdleLock(t *testing.T) {
+	_, srv := newFakeOutline(t)
+	a := newTestApp(t)
+	require.NoError(t, a.SetConnection(srv.URL, "good"))
+	a.mu.Lock()
+	a.idleTimeout = time.Minute
+	a.lastActivity = time.Now().Add(-2 * time.Minute)
+	a.mu.Unlock()
+	a.checkIdle()
+	st, err := a.StorageStatus()
+	require.NoError(t, err)
+	assert.True(t, st.Locked)
+}
+
+func TestNotifyActivityPreventsIdleLock(t *testing.T) {
+	_, srv := newFakeOutline(t)
+	a := newTestApp(t)
+	require.NoError(t, a.SetConnection(srv.URL, "good"))
+	a.mu.Lock()
+	a.idleTimeout = time.Minute
+	a.lastActivity = time.Now().Add(-2 * time.Minute)
+	a.mu.Unlock()
+	a.NotifyActivity()
+	a.checkIdle()
+	st, err := a.StorageStatus()
+	require.NoError(t, err)
+	assert.False(t, st.Locked)
 }

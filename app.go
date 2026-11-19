@@ -17,30 +17,41 @@ import (
 	"sync"
 	"time"
 
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+
 	"outline-reader/crypto"
 	"outline-reader/outline"
 	"outline-reader/storage"
 )
 
-const fullSyncInterval = time.Hour
+const syncInterval = time.Minute
+const fullSyncInterval = 24 * time.Hour
+const syncOverlap = 5 * time.Minute
+const idleCheckInterval = 15 * time.Second
 const maxBlobSize = 32 << 20
 
 var attachmentRe = regexp.MustCompile(`attachments\.redirect\?id=([0-9a-fA-F-]{36})`)
 var errSyncInProgress = errors.New("синхронизация уже выполняется")
 
 type App struct {
-	mu       sync.RWMutex
-	opMu     sync.Mutex
-	blobMu   sync.Mutex
-	once     sync.Once
-	initErr  error
-	db       *storage.DB
-	client   *outline.Client
-	dbPath   string
-	dataDir  string
-	portable bool
-	version  string
-	ctx      context.Context
+	mu           sync.RWMutex
+	opMu         sync.Mutex
+	syncMu       sync.Mutex
+	blobMu       sync.Mutex
+	once         sync.Once
+	initErr      error
+	db           *storage.DB
+	client       *outline.Client
+	dbPath       string
+	dataDir      string
+	portable     bool
+	version      string
+	ctx          context.Context
+	uiEvents     bool
+	syncCancel   context.CancelFunc
+	blobCancel   context.CancelFunc
+	lastActivity time.Time
+	idleTimeout  time.Duration
 }
 
 type unlockGuard struct {
@@ -48,7 +59,7 @@ type unlockGuard struct {
 	Until int64 `json:"until"`
 }
 
-func NewApp() *App { return &App{} }
+func NewApp() *App { return &App{idleTimeout: 5 * time.Minute} }
 
 func (a *App) ensure() error {
 	a.once.Do(func() { a.initErr = a.init() })
@@ -169,14 +180,26 @@ func (a *App) UnlockRetryAfter() int {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	_ = a.ensure()
+	a.NotifyActivity()
 	go a.syncLoop(ctx)
+	go a.idleLoop(ctx)
+	if a.uiEvents {
+		go a.watchSession(ctx)
+	}
 }
 
 func (a *App) Context() context.Context { return a.ctx }
 
 func (a *App) shutdown() {
+	a.cancelWork()
 	if db := a.getDB(); db != nil {
 		_ = db.Close()
+	}
+}
+
+func (a *App) emit(name string, data ...any) {
+	if a.uiEvents && a.ctx != nil {
+		wailsruntime.EventsEmit(a.ctx, name, data...)
 	}
 }
 
@@ -257,15 +280,32 @@ func (a *App) StorageStatus() (StorageStatus, error) {
 	}, nil
 }
 
+func (a *App) cancelWork() {
+	a.mu.Lock()
+	if a.syncCancel != nil {
+		a.syncCancel()
+		a.syncCancel = nil
+	}
+	if a.blobCancel != nil {
+		a.blobCancel()
+		a.blobCancel = nil
+	}
+	a.mu.Unlock()
+}
+
 func (a *App) LockApp() error {
 	a.opMu.Lock()
 	defer a.opMu.Unlock()
+	a.cancelWork()
 	a.setClient(nil)
-	if db := a.getDB(); db != nil {
-		_ = db.Close()
-		a.setDB(nil)
+	db := a.getDB()
+	if db == nil {
+		return nil
 	}
+	_ = db.Close()
+	a.setDB(nil)
 	log.Printf("[APP] база заблокирована")
+	a.emit("app:locked")
 	return nil
 }
 
@@ -293,6 +333,7 @@ func (a *App) UnlockDB(passphrase string) error {
 			return err
 		}
 		a.clearGuard()
+		a.NotifyActivity()
 		return nil
 	}
 	if !crypto.HasMasterSalt(a.dataDir) {
@@ -315,23 +356,73 @@ func (a *App) UnlockDB(passphrase string) error {
 		return fmt.Errorf("неверный мастер-пароль или база повреждена")
 	}
 	a.clearGuard()
+	a.NotifyActivity()
 	return nil
 }
 
-func (a *App) syncLoop(ctx context.Context) {
-	t := time.NewTicker(fullSyncInterval)
+func (a *App) NotifyActivity() {
+	a.mu.Lock()
+	a.lastActivity = time.Now()
+	a.mu.Unlock()
+}
+
+func (a *App) checkIdle() {
+	if a.getDB() == nil {
+		return
+	}
+	a.mu.RLock()
+	last := a.lastActivity
+	timeout := a.idleTimeout
+	a.mu.RUnlock()
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+	if time.Since(last) > timeout {
+		log.Printf("[APP] idle lock")
+		_ = a.LockApp()
+	}
+}
+
+func (a *App) idleLoop(ctx context.Context) {
+	t := time.NewTicker(idleCheckInterval)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if a.getClient() == nil {
+			a.checkIdle()
+		}
+	}
+}
+
+func (a *App) syncLoop(ctx context.Context) {
+	t := time.NewTicker(syncInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			db := a.getDB()
+			if db == nil || a.getClient() == nil {
 				continue
 			}
-			if _, err := a.TrySyncDocuments(); err != nil && !errors.Is(err, errSyncInProgress) {
-				log.Printf("[SYNC] periodic: %v", err)
+			full := time.Since(db.GetLastFullSync()) >= fullSyncInterval
+			res, titles, err := a.syncGuarded(full, false)
+			if errors.Is(err, errSyncInProgress) {
+				continue
 			}
+			if err != nil {
+				log.Printf("[SYNC] periodic: %v", err)
+				a.emit("sync:state", map[string]any{"ok": false})
+				continue
+			}
+			a.emit("sync:state", map[string]any{
+				"ok": true, "titles": titles,
+				"total": res.Total, "added": res.Added, "updated": res.Updated,
+				"deleted": res.Deleted, "meta": res.Meta,
+			})
 		}
 	}
 }
@@ -353,7 +444,7 @@ func (a *App) ready() error {
 
 type ConnectionSettings struct {
 	APIURL string `json:"apiURL"`
-	APIKey string `json:"apiKey"`
+	HasKey bool   `json:"hasKey"`
 }
 
 func (a *App) GetSettings() (ConnectionSettings, error) {
@@ -364,10 +455,7 @@ func (a *App) GetSettings() (ConnectionSettings, error) {
 	if err != nil {
 		return ConnectionSettings{}, err
 	}
-	return ConnectionSettings{
-		APIURL: s.APIURL,
-		APIKey: crypto.DecryptIfPossible(s.APIKey),
-	}, nil
+	return ConnectionSettings{APIURL: s.APIURL, HasKey: s.APIKey != ""}, nil
 }
 
 func (a *App) GetLastSyncTime() string {
@@ -387,19 +475,30 @@ func (a *App) SetConnection(apiURL, apiKey string) error {
 	}
 	apiURL = strings.TrimRight(strings.TrimSpace(apiURL), "/")
 	u, err := url.Parse(apiURL)
-	if err != nil {
-		return fmt.Errorf("некорректный URL сервера")
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return fmt.Errorf("укажите корректный URL: ожидается http:// или https://")
 	}
 	apiKey = strings.TrimSpace(apiKey)
-	if apiURL == "" || apiKey == "" {
-		return fmt.Errorf("укажите URL сервера и API-ключ")
+	if apiKey == "" {
+		s, err := a.getDB().GetSettings()
+		if err != nil {
+			return err
+		}
+		apiKey = crypto.DecryptIfPossible(s.APIKey)
+		if apiKey == "" {
+			return fmt.Errorf("укажите API-ключ")
+		}
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	client := outline.NewClient(apiURL, apiKey)
-	if err := client.CheckAuth(); err != nil {
+	if err := client.CheckAuth(ctx); err != nil {
 		return fmt.Errorf("проверка подключения: %w", err)
+	}
+	a.opMu.Lock()
+	defer a.opMu.Unlock()
+	if a.getDB() == nil {
+		return fmt.Errorf("хранилище заблокировано")
 	}
 	storedKey := apiKey
 	if !a.portable {
@@ -547,147 +646,227 @@ type SyncResult struct {
 	Added   int `json:"added"`
 	Updated int `json:"updated"`
 	Deleted int `json:"deleted"`
+	Meta    int `json:"meta"`
 }
 
 func (a *App) SyncDocuments() (SyncResult, error) {
-	a.opMu.Lock()
-	defer a.opMu.Unlock()
-	return a.syncLocked()
+	res, _, err := a.syncGuarded(false, true)
+	return res, err
+}
+
+func (a *App) SyncDocumentsFull() (SyncResult, error) {
+	res, _, err := a.syncGuarded(true, true)
+	return res, err
 }
 
 func (a *App) TrySyncDocuments() (SyncResult, error) {
-	if !a.opMu.TryLock() {
-		return SyncResult{}, errSyncInProgress
-	}
-	defer a.opMu.Unlock()
-	return a.syncLocked()
+	res, _, err := a.syncGuarded(false, false)
+	return res, err
 }
 
-func (a *App) syncLocked() (SyncResult, error) {
+func (a *App) syncGuarded(full, wait bool) (SyncResult, []string, error) {
+	if wait {
+		a.syncMu.Lock()
+	} else if !a.syncMu.TryLock() {
+		return SyncResult{}, nil, errSyncInProgress
+	}
+	defer a.syncMu.Unlock()
 	if err := a.ready(); err != nil {
-		return SyncResult{}, err
+		return SyncResult{}, nil, err
 	}
 	client := a.getClient()
 	if client == nil {
-		return SyncResult{}, fmt.Errorf("подключение не настроено")
+		return SyncResult{}, nil, fmt.Errorf("подключение не настроено")
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.mu.Lock()
+	a.syncCancel = cancel
+	a.mu.Unlock()
+	defer func() {
+		cancel()
+		a.mu.Lock()
+		a.syncCancel = nil
+		a.mu.Unlock()
+	}()
+	return a.syncCore(ctx, client, full)
+}
+
+type docPlacement struct {
+	colID  string
+	parent string
+	pos    int
+}
+
+func (a *App) syncCore(ctx context.Context, client *outline.Client, full bool) (SyncResult, []string, error) {
 	db := a.getDB()
-	cols, err := client.Collections()
+	cols, err := client.Collections(ctx)
 	if err != nil {
-		return SyncResult{}, err
+		return SyncResult{}, nil, err
 	}
-	content, err := client.AllDocuments()
+	live := make(map[string]docPlacement)
+	failedCols := make(map[string]bool)
+	pos := 0
+	var walk func(nodes []outline.NavNode, colID, parent string)
+	walk = func(nodes []outline.NavNode, colID, parent string) {
+		for _, n := range nodes {
+			pos++
+			if _, ok := live[n.ID]; !ok {
+				live[n.ID] = docPlacement{colID: colID, parent: parent, pos: pos}
+			}
+			walk(n.Children, colID, n.ID)
+		}
+	}
+	for _, col := range cols {
+		nodes, err := client.CollectionTree(ctx, col.ID)
+		if err != nil {
+			log.Printf("[SYNC] tree %s: %v", col.Name, err)
+			failedCols[col.ID] = true
+			continue
+		}
+		walk(nodes, col.ID, "")
+	}
+	drafts, err := client.Drafts(ctx)
 	if err != nil {
-		return SyncResult{}, err
+		return SyncResult{}, nil, err
 	}
-	byID := make(map[string]outline.Document, len(content))
-	var maxUpdated time.Time
-	for _, d := range content {
+	last := db.GetLastSyncTime()
+	fullMode := full || last.IsZero()
+	var changed []outline.Document
+	if fullMode {
+		changed, err = client.AllDocuments(ctx)
+	} else {
+		changed, err = client.UpdatedSince(ctx, last.Add(-syncOverlap))
+	}
+	if err != nil {
+		return SyncResult{}, nil, err
+	}
+	byID := make(map[string]outline.Document, len(changed)+len(drafts))
+	for _, d := range changed {
 		byID[d.ID] = d
+	}
+	for _, d := range drafts {
+		if _, ok := byID[d.ID]; !ok {
+			byID[d.ID] = d
+		}
+	}
+	old, err := db.GetDocumentsMeta()
+	if err != nil {
+		return SyncResult{}, nil, err
+	}
+	oldMap := make(map[string]storage.Document, len(old))
+	for _, d := range old {
+		oldMap[d.OutlineID] = d
+	}
+	needed := make(map[string]bool, len(live)+len(drafts))
+	for id := range live {
+		needed[id] = true
+	}
+	for _, d := range drafts {
+		needed[d.ID] = true
+	}
+	for id := range needed {
+		if ctx.Err() != nil {
+			return SyncResult{}, nil, ctx.Err()
+		}
+		if _, ok := oldMap[id]; ok {
+			continue
+		}
+		if _, ok := byID[id]; ok {
+			continue
+		}
+		d, err := client.DocumentInfo(ctx, id)
+		if err != nil {
+			log.Printf("[SYNC] info %s: %v", id, err)
+			continue
+		}
+		byID[d.ID] = *d
+	}
+	res := SyncResult{}
+	var titles []string
+	var maxUpdated time.Time
+	upserts := make([]storage.Document, 0, len(byID))
+	for id, d := range byID {
 		if d.UpdatedAt.After(maxUpdated) {
 			maxUpdated = d.UpdatedAt
 		}
-	}
-	docs := make([]storage.Document, 0, len(content))
-	used := make(map[string]bool, len(content))
-	pos := 0
-	add := func(d outline.Document, colID, parent string) {
-		pos++
-		docs = append(docs, storage.Document{
-			OutlineID: d.ID, CollectionID: colID, ParentID: parent,
+		colID, parent, position := d.CollectionID, d.ParentID, 0
+		if p, ok := live[id]; ok {
+			colID, parent, position = p.colID, p.parent, p.pos
+		} else if prev, ok := oldMap[id]; ok {
+			position = prev.Position
+		}
+		prev, existed := oldMap[id]
+		if !existed {
+			res.Added++
+		} else if !d.UpdatedAt.Equal(prev.UpdatedAt) {
+			res.Updated++
+			titles = append(titles, d.Title)
+		}
+		upserts = append(upserts, storage.Document{
+			OutlineID: id, CollectionID: colID, ParentID: parent,
 			UrlID: d.UrlID, Url: d.URL, Title: d.Title, Text: d.Text,
-			Position: pos, UpdatedAt: d.UpdatedAt,
+			Position: position, UpdatedAt: d.UpdatedAt,
 		})
 	}
-	for _, col := range cols {
-		nodes, err := client.CollectionTree(col.ID)
-		if err != nil {
-			log.Printf("[SYNC] tree %s: %v", col.Name, err)
-			nodes = nil
+	metaUpdates := make([]storage.Document, 0)
+	for id, p := range live {
+		if _, ok := byID[id]; ok {
+			continue
 		}
-		var walk func(nodes []outline.NavNode, parent string)
-		walk = func(nodes []outline.NavNode, parent string) {
-			for _, n := range nodes {
-				if d, ok := byID[n.ID]; ok && !used[n.ID] {
-					used[n.ID] = true
-					add(d, col.ID, parent)
-				}
-				walk(n.Children, n.ID)
-			}
+		prev, ok := oldMap[id]
+		if !ok {
+			continue
 		}
-		walk(nodes, "")
+		if prev.CollectionID != p.colID || prev.ParentID != p.parent || prev.Position != p.pos {
+			metaUpdates = append(metaUpdates, storage.Document{
+				OutlineID: id, CollectionID: p.colID, ParentID: p.parent, Position: p.pos,
+			})
+		}
 	}
-	for _, d := range content {
-		if !used[d.ID] {
-			add(d, d.CollectionID, d.ParentID)
+	deleteIDs := make([]string, 0)
+	for id, prev := range oldMap {
+		if needed[id] {
+			continue
 		}
+		if _, ok := byID[id]; ok {
+			continue
+		}
+		if failedCols[prev.CollectionID] {
+			continue
+		}
+		deleteIDs = append(deleteIDs, id)
+	}
+	res.Deleted = len(deleteIDs)
+	res.Meta = len(metaUpdates)
+	if ctx.Err() != nil {
+		return SyncResult{}, nil, ctx.Err()
 	}
 	scols := make([]storage.Collection, 0, len(cols))
 	for i, c := range cols {
 		scols = append(scols, storage.Collection{OutlineID: c.ID, Name: c.Name, Position: i})
 	}
-	old, _ := db.GetDocumentsMeta()
-	oldMap := make(map[string]time.Time, len(old))
-	for _, d := range old {
-		oldMap[d.OutlineID] = d.UpdatedAt
+	if err := db.ApplySync(scols, upserts, metaUpdates, deleteIDs); err != nil {
+		return SyncResult{}, nil, err
 	}
-	res := SyncResult{Total: len(docs)}
-	newSet := make(map[string]bool, len(docs))
-	for _, d := range docs {
-		newSet[d.OutlineID] = true
-		if prev, ok := oldMap[d.OutlineID]; !ok {
-			res.Added++
-		} else if !d.UpdatedAt.Equal(prev) {
-			res.Updated++
+	res.Total = int(db.CountDocuments())
+	watermark := maxUpdated
+	if watermark.Before(last) {
+		watermark = last
+	}
+	if watermark.IsZero() {
+		watermark = time.Now()
+	}
+	if err := db.SetSyncState(watermark, res.Added, res.Updated, res.Deleted); err != nil {
+		log.Printf("[SYNC] state: %v", err)
+	}
+	if fullMode {
+		if err := db.SetLastFullSync(time.Now()); err != nil {
+			log.Printf("[SYNC] full state: %v", err)
 		}
 	}
-	for id := range oldMap {
-		if !newSet[id] {
-			res.Deleted++
-		}
-	}
-	if err := db.ReplaceAll(scols, docs); err != nil {
-		return SyncResult{}, err
-	}
-	if maxUpdated.IsZero() {
-		maxUpdated = time.Now()
-	}
-	_ = db.SetSyncState(maxUpdated, res.Added, res.Updated, res.Deleted)
-	log.Printf("[SYNC] collections=%d documents=%d +%d ~%d -%d", len(scols), len(docs), res.Added, res.Updated, res.Deleted)
-	go a.prefetchBlobs(docs)
-	return res, nil
-}
-
-func (a *App) CheckForUpdates() ([]string, error) {
-	a.opMu.Lock()
-	defer a.opMu.Unlock()
-	if err := a.ready(); err != nil {
-		return nil, err
-	}
-	client := a.getClient()
-	if client == nil {
-		return nil, nil
-	}
-	last := a.getDB().GetLastSyncTime()
-	if last.IsZero() {
-		_, err := a.syncLocked()
-		return nil, err
-	}
-	updated, err := client.UpdatedSince(last)
-	if err != nil {
-		return nil, err
-	}
-	if len(updated) == 0 {
-		return nil, nil
-	}
-	titles := make([]string, 0, len(updated))
-	for _, d := range updated {
-		titles = append(titles, d.Title)
-	}
-	if _, err := a.syncLocked(); err != nil {
-		return nil, err
-	}
-	return titles, nil
+	log.Printf("[SYNC] collections=%d upserts=%d meta=%d +%d ~%d -%d", len(scols), len(upserts), res.Meta, res.Added, res.Updated, res.Deleted)
+	go a.prefetchBlobs(upserts, fullMode)
+	return res, titles, nil
 }
 
 type SyncStats struct {
@@ -711,11 +890,21 @@ func (a *App) GetSyncStats() (SyncStats, error) {
 	return out, nil
 }
 
-func (a *App) prefetchBlobs(docs []storage.Document) {
+func (a *App) prefetchBlobs(docs []storage.Document, full bool) {
 	if !a.blobMu.TryLock() {
 		return
 	}
 	defer a.blobMu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	a.mu.Lock()
+	a.blobCancel = cancel
+	a.mu.Unlock()
+	defer func() {
+		cancel()
+		a.mu.Lock()
+		a.blobCancel = nil
+		a.mu.Unlock()
+	}()
 	client, db := a.getClient(), a.getDB()
 	if client == nil || db == nil {
 		return
@@ -727,21 +916,26 @@ func (a *App) prefetchBlobs(docs []storage.Document) {
 		}
 	}
 	have, _ := db.BlobIDs()
-	haveSet := map[string]bool{}
+	haveSet := make(map[string]bool, len(have))
 	for _, id := range have {
 		haveSet[id] = true
 	}
-	ids := make([]string, 0, len(want))
-	for id := range want {
-		ids = append(ids, id)
+	if full {
+		ids := make([]string, 0, len(want))
+		for id := range want {
+			ids = append(ids, id)
+		}
+		_ = db.DeleteBlobsNotIn(ids)
 	}
-	_ = db.DeleteBlobsNotIn(ids)
 	ok, fail := 0, 0
 	for id := range want {
+		if ctx.Err() != nil || a.getDB() == nil || a.getClient() == nil {
+			return
+		}
 		if haveSet[id] {
 			continue
 		}
-		resp, err := client.Attachment(id)
+		resp, err := client.Attachment(ctx, id)
 		if err != nil {
 			fail++
 			log.Printf("[BLOB] %s: %v", id, err)
@@ -790,6 +984,15 @@ func (a *App) imageMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func writeBlobHeaders(w http.ResponseWriter, ct string) {
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if !strings.HasPrefix(ct, "image/") || strings.HasPrefix(ct, "image/svg") {
+		w.Header().Set("Content-Disposition", "attachment")
+	}
+}
+
 func (a *App) serveImage(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
@@ -798,8 +1001,7 @@ func (a *App) serveImage(w http.ResponseWriter, r *http.Request) {
 	}
 	if db := a.getDB(); db != nil {
 		if b, err := db.GetBlob(id); err == nil {
-			w.Header().Set("Content-Type", b.Mime)
-			w.Header().Set("Cache-Control", "no-store")
+			writeBlobHeaders(w, b.Mime)
 			_, _ = w.Write(b.Data)
 			return
 		}
@@ -809,7 +1011,7 @@ func (a *App) serveImage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "offline: attachment not cached", http.StatusNotFound)
 		return
 	}
-	resp, err := client.Attachment(id)
+	resp, err := client.Attachment(r.Context(), id)
 	if err != nil {
 		log.Printf("[IMG] %v", err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -830,8 +1032,7 @@ func (a *App) serveImage(w http.ResponseWriter, r *http.Request) {
 			_ = db.SaveBlob(&storage.Blob{ID: id, Mime: ct, Data: data, Size: int64(len(data)), FetchedAt: time.Now()})
 		}
 	}
-	w.Header().Set("Content-Type", ct)
-	w.Header().Set("Cache-Control", "no-store")
+	writeBlobHeaders(w, ct)
 	_, _ = w.Write(data)
 }
 
@@ -841,6 +1042,7 @@ func (a *App) ResetApp() error {
 	if err := a.ensure(); err != nil {
 		return err
 	}
+	a.cancelWork()
 	a.setClient(nil)
 	if old := a.getDB(); old != nil {
 		_ = old.Close()
