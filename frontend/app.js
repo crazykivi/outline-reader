@@ -27,6 +27,7 @@ let lockHasDB = false, lockPortable = false, lockLegacy = false, idleTimer = nul
 let isPortable = false, captureProtect = false;
 let favorites = [];
 let clipTimer = null;
+let guardTimer = null, guardLeft = 0;
 
 const IDLE_LOCK_MS = 5 * 60 * 1000;
 const palette = { open: false, items: [], sel: 0, timer: null };
@@ -300,9 +301,11 @@ async function bootstrap(autoUnlock) {
         $("mainScreen").style.display = "none";
         $("lockScreen").style.display = "flex";
         if (needPass) $("lockPass").focus();
+        go().UnlockRetryAfter().then(startGuardCountdown).catch(() => {});
         return;
     }
     $("lockScreen").style.display = "none";
+    startGuardCountdown(0);
     const s = await go().GetSettings();
     if (s && s.apiURL && s.apiKey) {
         $("apiUrl").value = s.apiURL;
@@ -327,6 +330,7 @@ async function unlockDB() {
         }
         return;
     }
+    if (guardLeft > 0) return;
     const passVisible = $("lockPass").style.display !== "none";
     const pass = passVisible ? $("lockPass").value : "";
     $("lockError").textContent = "";
@@ -338,13 +342,39 @@ async function unlockDB() {
     btn.disabled = true;
     try {
         await go().UnlockDB(pass);
+        startGuardCountdown(0);
         $("lockScreen").style.display = "none";
         $("lockPass").value = ""; $("lockPass2").value = "";
         await bootstrap(true);
     } catch (err) {
         $("lockError").textContent = String(err);
+        startGuardCountdown(await go().UnlockRetryAfter());
     } finally {
-        btn.disabled = false;
+        btn.disabled = guardLeft > 0;
+    }
+}
+
+function startGuardCountdown(sec) {
+    clearInterval(guardTimer);
+    guardLeft = Math.max(0, sec | 0);
+    applyGuard();
+    if (guardLeft > 0) {
+        guardTimer = setInterval(() => {
+            guardLeft--;
+            applyGuard();
+            if (guardLeft <= 0) clearInterval(guardTimer);
+        }, 1000);
+    }
+}
+function applyGuard() {
+    const blocked = guardLeft > 0;
+    $("lockBtn").disabled = blocked;
+    $("lockPass").disabled = blocked;
+    $("lockPass2").disabled = blocked;
+    if (blocked) {
+        $("lockError").textContent = "Слишком много неверных попыток. Повтор через " + guardLeft + " с";
+    } else if (($("lockError").textContent || "").startsWith("Слишком много")) {
+        $("lockError").textContent = "";
     }
 }
 
