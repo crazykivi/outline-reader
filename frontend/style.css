@@ -472,3 +472,35 @@ mark.find-hit.current {
 #forwardBtn, #backBtn, .btn-icon { border: none; background: none; }
 .btn-icon.active { color: var(--accent);}
 .doc-viewer.toc-open { padding: 36px 10px 80px 0px; }
+
+.side-status{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.status-text{font-size:11px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sync-delta{font-size:10px;opacity:.85;color:#22c55e;white-space:nowrap}
+
+.palette-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:12vh;z-index:300}
+.palette{width:min(560px,90vw);background:var(--bg,#1b1f26);border:1px solid rgba(128,128,128,.35);border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.5);overflow:hidden}
+.palette input{width:100%;box-sizing:border-box;padding:12px 14px;border:none;outline:none;background:transparent;color:inherit;font-size:15px;border-bottom:1px solid rgba(128,128,128,.25)}
+.palette-list{max-height:340px;overflow-y:auto}
+.palette-item{padding:8px 14px;cursor:pointer}
+.palette-item.sel{background:rgba(128,128,128,.18)}
+.palette-title{font-size:14px}
+.palette-meta{font-size:11px;opacity:.6;display:flex;gap:8px}
+.palette-fav{color:#eab308}
+.palette-empty{padding:14px;opacity:.6;font-size:13px}
+.palette-hint{padding:6px 14px;font-size:11px;opacity:.5;border-top:1px solid rgba(128,128,128,.25)}
+
+.fav-star{color:#eab308;display:inline-flex;margin-right:4px;flex:none}
+#favBtn.active{color:#eab308}
+#favBtn.active svg{fill:currentColor}
+
+.doc-content .notice{border:1px solid rgba(128,128,128,.3);border-left:3px solid #888;border-radius:6px;padding:10px 14px;margin:12px 0;background:rgba(128,128,128,.07)}
+.doc-content .notice>:first-child{margin-top:0}
+.doc-content .notice>:last-child{margin-bottom:0}
+.notice-info{border-left-color:#3b82f6}
+.notice-tip,.notice-success{border-left-color:#22c55e}
+.notice-warning{border-left-color:#f59e0b}
+.notice-danger{border-left-color:#ef4444}
+.doc-content mark{background:rgba(250,204,21,.35);color:inherit;padding:0 2px;border-radius:3px}
+.doc-content u{text-underline-offset:3px}
+
+.doc-content img.img-missing{min-height:48px;border:1px dashed rgba(128,128,128,.5);border-radius:6px;padding:8px;font-size:12px;color:rgba(128,128,128,.9)}

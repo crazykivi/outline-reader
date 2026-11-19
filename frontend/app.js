@@ -5,6 +5,7 @@ const go = () => window.go.main.App;
 
 const ICON_SUN = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
 const ICON_MOON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+const ICON_STAR = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2-6.2 3.2L7 14.2 2 9.3l6.9-1z"/></svg>';
 
 let collections = [];
 let index = {};
@@ -13,6 +14,7 @@ let history = [];
 let historyIndex = -1;
 let skipHistoryPush = false;
 let currentOID = null;
+let currentDocUpdated = "";
 let updateTimer = null;
 let searchTimer = null;
 let toastTimer = null;
@@ -21,6 +23,13 @@ let tocOpen = localStorage.getItem("or.tocOpen") === "1";
 let fontScale = parseFloat(localStorage.getItem("or.fontScale") || "1");
 let lastTreeClick = { oid: null, time: 0 };
 let currentDocUrl = "";
+let lockHasDB = false, lockPortable = false, idleTimer = null;
+let isPortable = false, captureProtect = false;
+let favorites = [];
+let clipTimer = null;
+
+const IDLE_LOCK_MS = 10 * 60 * 1000;
+const palette = { open: false, items: [], sel: 0, timer: null };
 
 const find = {
     open: false, matches: [], current: -1,
@@ -40,14 +49,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     initResizer();
     try {
         await waitBindings();
-        const s = await go().GetSettings();
-        if (s && s.apiURL && s.apiKey) {
-            $("apiUrl").value = s.apiURL;
-            $("apiKey").value = s.apiKey;
-            enterMain();
-        }
+        await bootstrap(true);
     } catch (err) {
-        console.error("[UI] settings:", err);
+        console.error("[UI] bootstrap:", err);
         $("setupError").textContent = "Не удалось прочитать настройки: " + err;
     }
 });
@@ -75,6 +79,10 @@ function bindUI() {
         renderTree();
     });
     $("closeNotification").addEventListener("click", () => { $("updateNotification").style.display = "none"; });
+    $("lockBtn").addEventListener("click", unlockDB);
+    [$("lockPass"), $("lockPass2")].forEach((el) => {
+        el.addEventListener("keydown", (e) => { if (e.key === "Enter") unlockDB(); });
+    });
 
     // меню "три точки"
     $("menuBtn").addEventListener("click", () => {
@@ -90,9 +98,9 @@ function bindUI() {
         closeMenu();
         openFindBar();
     });
-    $("menuFullWidth").addEventListener("click", () => {
-        applyFullWidth(!fullWidth);
-    });
+    $("menuFullWidth").addEventListener("click", () => { applyFullWidth(!fullWidth); });
+    $("menuCapture").addEventListener("click", toggleCapture);
+    $("menuLock").addEventListener("click", () => { closeMenu(); lockNow(); });
     $("menuConnection").addEventListener("click", () => { closeMenu(); openConnModal(); });
     $("menuReset").addEventListener("click", () => { closeMenu(); openResetModal(); });
 
@@ -110,6 +118,7 @@ function bindUI() {
     $("resetCancel").addEventListener("click", closeResetModal);
     $("resetConfirm").addEventListener("click", doReset);
     $("resetModal").addEventListener("mousedown", (e) => { if (e.target === $("resetModal")) closeResetModal(); });
+
     // модалка "О программе"
     $("aboutClose").addEventListener("click", closeAboutModal);
     $("aboutOk").addEventListener("click", closeAboutModal);
@@ -117,7 +126,7 @@ function bindUI() {
         e.preventDefault();
         window.runtime.BrowserOpenURL("https://github.com/crazykivi/outline-reader");
     });
-    $("aboutModal").addEventListener("mousedown", (e) => {  if (e.target === $("aboutModal")) closeAboutModal();  });
+    $("aboutModal").addEventListener("mousedown", (e) => { if (e.target === $("aboutModal")) closeAboutModal(); });
 
     // глобальный поиск
     $("searchInput").addEventListener("input", () => {
@@ -134,6 +143,20 @@ function bindUI() {
             $("searchInput").blur();
         }
     });
+
+    $("paletteInput").addEventListener("input", () => {
+        clearTimeout(palette.timer);
+        const q = $("paletteInput").value.trim();
+        if (q.length < 2) { paletteDefault(); return; }
+        palette.timer = setTimeout(() => paletteSearch(q), 150);
+    });
+    $("paletteInput").addEventListener("keydown", (e) => {
+        if (e.key === "ArrowDown") { e.preventDefault(); paletteMove(1); }
+        if (e.key === "ArrowUp") { e.preventDefault(); paletteMove(-1); }
+        if (e.key === "Enter") { e.preventDefault(); paletteOpen(palette.sel); }
+        if (e.key === "Escape") { e.stopPropagation(); closePalette(); }
+    });
+    $("palette").addEventListener("mousedown", (e) => { if (e.target === $("palette")) closePalette(); });
 
     // find bar
     $("findInput").addEventListener("input", () => {
@@ -169,14 +192,18 @@ function bindUI() {
     });
 
     document.addEventListener("keydown", (e) => {
-        if (e.altKey && e.code === "ArrowLeft") {
-            e.preventDefault();
-            goBack();
+        if (e.altKey && e.code === "ArrowLeft") { e.preventDefault(); goBack(); return; }
+        if (e.altKey && e.code === "ArrowRight") { e.preventDefault(); goForward(); return; }
+        if ((e.ctrlKey || e.metaKey) && e.code === "KeyP") {
+            if ($("mainScreen").style.display !== "none") { e.preventDefault(); openPalette(); }
             return;
         }
-        if (e.altKey && e.code === "ArrowRight") {
-            e.preventDefault();
-            goForward();
+        if ((e.ctrlKey || e.metaKey) && e.code === "KeyL") {
+            if ($("mainScreen").style.display !== "none") { e.preventDefault(); lockNow(); }
+            return;
+        }
+        if (e.key === "F5") {
+            if ($("mainScreen").style.display !== "none") { e.preventDefault(); syncNow(); }
             return;
         }
         if ((e.ctrlKey || e.metaKey) && e.code === "KeyK") {
@@ -192,6 +219,7 @@ function bindUI() {
             e.shiftKey ? findPrev() : findNext();
         }
         if (e.key === "Escape") {
+            if (palette.open) { closePalette(); return; }
             if ($("docMenu").style.display !== "none") { closeMenu(); return; }
             if ($("connModal").style.display !== "none") { closeConnModal(); return; }
             if ($("resetModal").style.display !== "none") { closeResetModal(); return; }
@@ -215,19 +243,27 @@ function bindUI() {
             else if (e.deltaY > 0) zoomOut();
         }
     }, { passive: false });
+    document.addEventListener("mousedown", (e) => {
+        if (e.button === 3) { e.preventDefault(); goBack(); }
+        else if (e.button === 4) { e.preventDefault(); goForward(); }
+    });
+    document.addEventListener("auxclick", (e) => {
+        if (e.button === 3 || e.button === 4) e.preventDefault();
+    });
+    ["mousemove", "mousedown", "keydown", "wheel"].forEach((ev) =>
+        document.addEventListener(ev, () => {
+            if ($("mainScreen").style.display !== "none") resetIdle();
+        }, { passive: true }));
+
     $("docLink").addEventListener("click", (e) => {
         e.preventDefault();
         if (currentDocUrl) window.runtime.BrowserOpenURL(currentDocUrl);
     });
-    $("docLinkCopy").addEventListener("click", async () => {
-        if (!currentDocUrl) return;
-        const ok = await window.runtime.ClipboardSetText(currentDocUrl);
-        showToast(ok ? "Ссылка скопирована" : "Ошибка", ok ? currentDocUrl : "Не удалось скопировать ссылку", !ok);
+    $("docLinkCopy").addEventListener("click", () => {
+        if (currentDocUrl) copySensitive(currentDocUrl, currentDocUrl);
     });
-    $("menuAbout").addEventListener("click", () => {
-        closeMenu();
-        showAbout();
-    });
+    $("favBtn").addEventListener("click", toggleFav);
+    $("menuAbout").addEventListener("click", () => { closeMenu(); showAbout(); });
     $("menuZoomIn").addEventListener("click", () => { closeMenu(); zoomIn(); });
     $("menuZoomOut").addEventListener("click", () => { closeMenu(); zoomOut(); });
     $("zoomIndicator").addEventListener("click", zoomReset);
@@ -238,15 +274,101 @@ function bindUI() {
     $("tocBtn").addEventListener("click", () => applyTocOpen(!tocOpen));
 }
 
+/* ---------- Запуск / блокировка ---------- */
+
+async function bootstrap(autoUnlock) {
+    let st = await go().StorageStatus();
+    isPortable = st.portable;
+    if (st.locked && !st.portable && autoUnlock) {
+        await go().UnlockDB("");
+        st = await go().StorageStatus();
+    }
+    if (st.locked) {
+        lockHasDB = st.hasDB;
+        lockPortable = st.portable;
+        $("lockSubtitle").textContent = !st.portable ? "База заблокирована"
+            : st.hasDB ? "Введите пароль локальной базы"
+            : "Придумайте пароль для шифрования базы (минимум 8 символов)";
+        $("lockPass").style.display = st.portable ? "block" : "none";
+        $("lockPass2").style.display = st.portable && !st.hasDB ? "block" : "none";
+        $("lockBtn").textContent = !st.portable ? "Продолжить" : st.hasDB ? "Открыть" : "Создать базу";
+        $("lockScreen").style.display = "flex";
+        if (st.portable) $("lockPass").focus();
+        return;
+    }
+    const s = await go().GetSettings();
+    if (s && s.apiURL && s.apiKey) {
+        $("apiUrl").value = s.apiURL;
+        $("apiKey").value = s.apiKey;
+        enterMain();
+    }
+}
+
+async function unlockDB() {
+    const pass = lockPortable ? $("lockPass").value : "";
+    $("lockError").textContent = "";
+    if (lockPortable && !lockHasDB && pass !== $("lockPass2").value) {
+        $("lockError").textContent = "Пароли не совпадают";
+        return;
+    }
+    const btn = $("lockBtn");
+    btn.disabled = true;
+    try {
+        await go().UnlockDB(pass);
+        $("lockScreen").style.display = "none";
+        $("lockPass").value = ""; $("lockPass2").value = "";
+        await bootstrap(true);
+    } catch (err) {
+        $("lockError").textContent = String(err);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function lockNow() {
+    if ($("mainScreen").style.display === "none") return;
+    try { await go().LockApp(); } catch (e) {}
+    currentOID = null;
+    currentDocUpdated = "";
+    currentDocUrl = "";
+    history = []; historyIndex = -1; updateHistoryButtons();
+    $("docContent").innerHTML = ""; $("docTitle").textContent = "";
+    $("docDate").textContent = ""; $("docCrumbs").innerHTML = "";
+    $("docLink").style.display = "none";
+    $("docLinkCopy").style.display = "none";
+    $("favBtn").style.display = "none";
+    $("docTree").innerHTML = ""; collections = []; index = {}; favorites = [];
+    $("searchInput").value = "";
+    $("tocPanel").style.display = "none";
+    $("tocContent").innerHTML = "";
+    closeFindBar(); closeMenu(); closePalette();
+    $("docViewer").style.display = "none";
+    $("welcomeScreen").style.display = "none";
+    $("updateNotification").style.display = "none";
+    $("toast").style.display = "none";
+    $("mainScreen").style.display = "none";
+    if (updateTimer) { clearInterval(updateTimer); updateTimer = null; }
+    clearTimeout(idleTimer);
+    await bootstrap(false);
+}
+
+function resetIdle() {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(lockNow, IDLE_LOCK_MS);
+}
+
 /* ---------- Экраны / подключение ---------- */
 
 function enterMain() {
     $("setupScreen").style.display = "none";
+    $("lockScreen").style.display = "none";
     $("mainScreen").style.display = "flex";
     loadTree();
     if (updateTimer) clearInterval(updateTimer);
     updateTimer = setInterval(checkUpdates, 60000);
     checkUpdates();
+    resetIdle();
+    initCapture();
 }
 
 async function connect() {
@@ -281,6 +403,7 @@ function openMenu() {
     const noDoc = $("docViewer").style.display === "none";
     $("menuFind").classList.toggle("disabled", noDoc);
     $("fwSwitch").classList.toggle("on", fullWidth);
+    $("capSwitch").classList.toggle("on", captureProtect);
     $("docMenu").style.display = "block";
 }
 
@@ -310,13 +433,13 @@ async function saveConnection() {
         btn.textContent = "Проверка...";
         await go().SetConnection(url, key);
         btn.textContent = "Синхронизация...";
-        const n = await go().SyncDocuments();
+        const res = await go().SyncDocuments();
         setNet(true);
         closeConnModal();
-        showToast("Подключение обновлено", "Документов в базе: " + n, false);
+        showToast("Подключение обновлено", "Документов в базе: " + res.total, false);
         await loadTree();
-        updateLastSync();
-        if (currentOID) openDocument(currentOID);
+        updateStatus();
+        await refreshCurrentDoc();
     } catch (err) {
         $("connError").textContent = String(err);
     } finally {
@@ -335,47 +458,61 @@ async function doReset() {
     btn.textContent = "Очистка...";
     try {
         if (updateTimer) { clearInterval(updateTimer); updateTimer = null; }
+        clearTimeout(idleTimer);
         clearTimeout(searchTimer);
         await go().ResetApp();
-
-        ["or.expanded", "or.theme", "or.sideWidth", "or.fullWidth", "or.fontScale", "or.tocOpen"].forEach((k) => localStorage.removeItem(k));
-        expanded.clear();
-        collections = [];
-        index = {};
-        currentOID = null;
-        history = [];
-        historyIndex = -1;
-        updateHistoryButtons();
-        $("tocPanel").style.display = "none";
-        $("tocContent").innerHTML = "";
-        $("tocBtn").disabled = true;
-        $("tocBtn").classList.remove("active");
-        $("lastSync").textContent = "";
-        $("lastSync").title = "";
-        closeFindBar();
-        $("searchInput").value = "";
-        $("docViewer").style.display = "none";
-        $("welcomeScreen").style.display = "flex";
-        $("docTree").innerHTML = "";
-        $("docCount").textContent = "";
-        setNet(null);
-        document.querySelector(".sidebar").style.width = "";
-        applyTheme("dark");
-        applyFullWidth(false);
-        applyFontScale(1);
-        tocOpen = false;
-        closeResetModal();
-        $("mainScreen").style.display = "none";
-        $("setupScreen").style.display = "flex";
-        $("apiUrl").value = "";
-        $("apiKey").value = "";
-        $("setupError").textContent = "";
+        ["or.expanded", "or.theme", "or.sideWidth", "or.fullWidth", "or.fontScale", "or.tocOpen", "or.captureProtect"]
+            .forEach((k) => localStorage.removeItem(k));
+        window.location.reload();
     } catch (err) {
         showToast("Ошибка очистки", String(err), true);
-    } finally {
         btn.disabled = false;
         btn.textContent = "Очистить";
     }
+}
+
+/* ---------- Защита от захвата экрана ---------- */
+
+function initCapture() {
+    const saved = localStorage.getItem("or.captureProtect");
+    const on = saved === null ? isPortable : saved === "1";
+    if (!go().SetCaptureProtection) return;
+    go().SetCaptureProtection(on).then((ok) => {
+        captureProtect = ok && on;
+    }).catch(() => {});
+}
+
+function toggleCapture() {
+    if (!go().SetCaptureProtection) {
+        showToast("Защита от захвата", "Доступна только на Windows", true);
+        return;
+    }
+    const next = !captureProtect;
+    go().SetCaptureProtection(next).then((ok) => {
+        captureProtect = ok && next;
+        localStorage.setItem("or.captureProtect", captureProtect ? "1" : "0");
+        $("capSwitch").classList.toggle("on", captureProtect);
+        showToast(captureProtect ? "Защита от захвата включена" : "Защита от захвата выключена",
+            ok ? "Окно не видно программам записи экрана" : "Не удалось применить (Windows 10 2004+)", !ok);
+    }).catch((err) => showToast("Ошибка", String(err), true));
+}
+
+/* ---------- Буфер обмена ---------- */
+
+function scheduleClipClear(text) {
+    clearTimeout(clipTimer);
+    clipTimer = setTimeout(async () => {
+        try {
+            const cur = await window.runtime.ClipboardGetText();
+            if (cur === text) await window.runtime.ClipboardSetText("");
+        } catch (e) {}
+    }, 30000);
+}
+
+async function copySensitive(text, label) {
+    const ok = await window.runtime.ClipboardSetText(text);
+    showToast(ok ? "Скопировано (очистится через 30 с)" : "Ошибка", label, !ok);
+    if (ok) scheduleClipClear(text);
 }
 
 /* ---------- Дерево ---------- */
@@ -384,7 +521,7 @@ async function loadTree() {
     try {
         collections = await go().GetTree();
         buildIndex();
-        updateDocCount();
+        await refreshFavorites();
         if (currentOID) expandAncestors(currentOID);
         renderTree();
     } catch (err) {
@@ -409,26 +546,29 @@ function buildIndex() {
     }
 }
 
-function updateDocCount() {
-    const n = Object.keys(index).length;
-    $("docCount").textContent = n ? pluralDocs(n) : "";
-}
-
-async function updateLastSync() {
-	const el = $("lastSync");
-	if (!el) return;
-	try {
-		const iso = await go().GetLastSyncTime();
-		if (!iso) { el.textContent = ""; el.title = ""; return; }
-		const ago = Date.now() - new Date(iso).getTime();
-		let text;
-		if      (ago < 60_000)      text = "обновлено только что";
-		else if (ago < 3_600_000)   text = "обновлено " + Math.floor(ago / 60_000) + " мин назад";
-		else if (ago < 86_400_000)  text = "обновлено " + Math.floor(ago / 3_600_000) + " ч назад";
-		else                        text = "обновлено " + Math.floor(ago / 86_400_000) + " дн назад";
-		el.textContent = text;
-		el.title = new Date(iso).toLocaleString("ru-RU");
-	} catch (e) { el.textContent = ""; }
+async function updateStatus() {
+    try {
+        const st = await go().GetSyncStats();
+        const el = $("statusText");
+        if (!st.lastSync) {
+            el.textContent = st.total ? pluralDocs(st.total) : "";
+            $("syncDelta").textContent = "";
+            $("sideStatus").title = "";
+            return;
+        }
+        const d = new Date(st.lastSync);
+        const hm = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+        const sameDay = d.toDateString() === new Date().toDateString();
+        const day = sameDay ? "" : " " + d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+        el.textContent = st.total + " док · " + hm + day;
+        $("sideStatus").title = "Последняя синхронизация: " + d.toLocaleString("ru-RU");
+        const parts = [];
+        if (st.added) parts.push("+" + st.added);
+        if (st.updated) parts.push("~" + st.updated);
+        if (st.deleted) parts.push("−" + st.deleted);
+        $("syncDelta").textContent = parts.join(" ");
+        $("syncDelta").title = "Новых: " + st.added + ", обновлено: " + st.updated + ", удалено: " + st.deleted;
+    } catch (e) {}
 }
 
 function pluralDocs(n) {
@@ -452,9 +592,37 @@ function renderTree() {
     if (!collections.length) {
         const d = document.createElement("div");
         d.className = "tree-empty";
-        d.textContent = "База пуста. Нажмите кнопку синхронизации в шапке.";
+        d.textContent = "База пуста. Нажмите кнопку синхронизации в меню.";
         el.appendChild(d);
         return;
+    }
+    if (favorites.length) {
+        const sec = document.createElement("section");
+        const h = document.createElement("div");
+        h.className = "collection-title";
+        h.textContent = "Избранное";
+        sec.appendChild(h);
+        const ul = document.createElement("ul");
+        ul.className = "tree-list";
+        for (const d of favorites) {
+            const li = document.createElement("li");
+            const row = document.createElement("div");
+            row.className = "tree-row fav-row";
+            row.dataset.oid = d.OutlineID;
+            row.style.paddingLeft = "8px";
+            const star = document.createElement("span");
+            star.className = "fav-star";
+            star.innerHTML = ICON_STAR;
+            const label = document.createElement("span");
+            label.className = "tree-label";
+            label.textContent = d.Title || "Без названия";
+            row.append(star, label);
+            row.addEventListener("click", () => openDocument(d.OutlineID));
+            li.appendChild(row);
+            ul.appendChild(li);
+        }
+        sec.appendChild(ul);
+        el.appendChild(sec);
     }
     for (const col of collections) {
         const sec = document.createElement("section");
@@ -465,7 +633,7 @@ function renderTree() {
         sec.appendChild(renderNodes(col.nodes, 0));
         el.appendChild(sec);
     }
-    updateLastSync();
+    updateStatus();
     markActive();
 }
 
@@ -528,58 +696,163 @@ function markActive() {
 }
 
 function goBack() {
-	if (historyIndex <= 0) return;
-	historyIndex--;
-	skipHistoryPush = true;
-	openDocument(history[historyIndex]);
+    if (historyIndex <= 0) return;
+    historyIndex--;
+    skipHistoryPush = true;
+    openDocument(history[historyIndex]);
 }
 
 function goForward() {
-	if (historyIndex >= history.length - 1) return;
-	historyIndex++;
-	skipHistoryPush = true;
-	openDocument(history[historyIndex]);
+    if (historyIndex >= history.length - 1) return;
+    historyIndex++;
+    skipHistoryPush = true;
+    openDocument(history[historyIndex]);
 }
 
 function updateHistoryButtons() {
-	$("backBtn").disabled = historyIndex <= 0;
-	$("forwardBtn").disabled = historyIndex >= history.length - 1;
+    $("backBtn").disabled = historyIndex <= 0;
+    $("forwardBtn").disabled = historyIndex >= history.length - 1;
+}
+
+/* ---------- Избранное / недавние / палитра ---------- */
+
+async function refreshFavorites() {
+    try { favorites = (await go().GetFavorites()) || []; } catch (e) { favorites = []; }
+}
+
+async function toggleFav() {
+    if (!currentOID) return;
+    const on = await go().ToggleFavorite(currentOID);
+    updateFavBtn(on);
+    await refreshFavorites();
+    renderTree();
+    showToast(on ? "Добавлено в избранное" : "Убрано из избранного", $("docTitle").textContent, false);
+}
+
+function updateFavBtn(on) {
+    const b = $("favBtn");
+    b.style.display = "grid";
+    b.classList.toggle("active", !!on);
+    b.title = on ? "Убрать из избранного" : "В избранное";
+}
+
+function openPalette() {
+    palette.open = true;
+    $("palette").style.display = "flex";
+    $("paletteInput").value = "";
+    $("paletteInput").focus();
+    paletteDefault();
+}
+
+function closePalette() {
+    palette.open = false;
+    $("palette").style.display = "none";
+}
+
+async function paletteDefault() {
+    try {
+        const [fav, rec] = await Promise.all([go().GetFavorites(), go().GetRecent()]);
+        const seen = new Set();
+        palette.items = [];
+        for (const d of fav || []) { seen.add(d.OutlineID); palette.items.push({ doc: d, fav: true }); }
+        for (const d of rec || []) { if (!seen.has(d.OutlineID)) palette.items.push({ doc: d, fav: false }); }
+        palette.sel = 0;
+        renderPalette("");
+    } catch (e) {}
+}
+
+async function paletteSearch(q) {
+    try {
+        const res = await go().SearchDocuments(q);
+        if ($("paletteInput").value.trim() !== q) return;
+        palette.items = (res || []).slice(0, 12).map((d) => ({ doc: d, fav: false }));
+        palette.sel = 0;
+        renderPalette(q);
+    } catch (e) {}
+}
+
+function renderPalette(q) {
+    const list = $("paletteList");
+    list.innerHTML = "";
+    if (!palette.items.length) {
+        const d = document.createElement("div");
+        d.className = "palette-empty";
+        d.textContent = q ? "Ничего не найдено" : "Нет недавних документов";
+        list.appendChild(d);
+        return;
+    }
+    palette.items.forEach((it, i) => {
+        const row = document.createElement("div");
+        row.className = "palette-item" + (i === palette.sel ? " sel" : "");
+        const t = document.createElement("div");
+        t.className = "palette-title";
+        highlightInto(t, it.doc.Title || "Без названия", q);
+        const meta = document.createElement("div");
+        meta.className = "palette-meta";
+        meta.textContent = (index[it.doc.OutlineID] || {}).colName || "";
+        if (it.fav) {
+            const s = document.createElement("span");
+            s.className = "palette-fav";
+            s.textContent = "избранное";
+            meta.appendChild(s);
+        }
+        row.append(t, meta);
+        row.addEventListener("click", () => paletteOpen(i));
+        list.appendChild(row);
+    });
+}
+
+function paletteOpen(i) {
+    const it = palette.items[i];
+    if (!it) return;
+    closePalette();
+    openDocument(it.doc.OutlineID);
+}
+
+function paletteMove(dir) {
+    const n = palette.items.length;
+    if (!n) return;
+    palette.sel = (palette.sel + dir + n) % n;
+    renderPalette($("paletteInput").value.trim());
+    const el = $("paletteList").children[palette.sel];
+    if (el) el.scrollIntoView({ block: "nearest" });
 }
 
 /* ---------- Документ ---------- */
 
 async function openDocument(oid, query) {
-	try {
-		const doc = await go().GetDocument(oid);
-		const s = await go().GetSettings().catch(() => null);
-		
-		if (!skipHistoryPush) {
-			if (historyIndex < history.length - 1) {
-				history = history.slice(0, historyIndex + 1);
-			}
-			if (history[historyIndex] !== oid) {
-				history.push(oid);
-				historyIndex++;
-			}
-		}
-		skipHistoryPush = false;
-		updateHistoryButtons();
-		
-		currentOID = oid;
-		expandAncestors(oid);
-		renderTree();
-		showDoc(doc, (s && s.apiURL) || "");
-		if (query) {
-			openFindBar(query);
-		} else if (find.open) {
-			runFind();
-		} else {
-			find.matches = [];
-			find.current = -1;
-		}
-	} catch (err) {
-		showToast("Ошибка", "Не удалось открыть документ: " + err, true);
-	}
+    try {
+        const doc = await go().GetDocument(oid);
+        const s = await go().GetSettings().catch(() => null);
+
+        if (!skipHistoryPush) {
+            if (historyIndex < history.length - 1) {
+                history = history.slice(0, historyIndex + 1);
+            }
+            if (history[historyIndex] !== oid) {
+                history.push(oid);
+                historyIndex++;
+            }
+        }
+        skipHistoryPush = false;
+        updateHistoryButtons();
+
+        currentOID = oid;
+        expandAncestors(oid);
+        renderTree();
+        showDoc(doc, (s && s.apiURL) || "");
+        go().IsFavorite(oid).then(updateFavBtn).catch(() => {});
+        if (query) {
+            openFindBar(query);
+        } else if (find.open) {
+            runFind();
+        } else {
+            find.matches = [];
+            find.current = -1;
+        }
+    } catch (err) {
+        showToast("Ошибка", "Не удалось открыть документ: " + err, true);
+    }
 }
 
 function showDoc(doc, base) {
@@ -587,11 +860,31 @@ function showDoc(doc, base) {
     $("docViewer").style.display = "block";
     $("docTitle").textContent = doc.Title || "Без названия";
     $("docDate").textContent = doc.UpdatedAt ? "Обновлено: " + new Date(doc.UpdatedAt).toLocaleString("ru-RU") : "";
+    currentDocUpdated = doc.UpdatedAt || "";
     renderDocLink(doc, base);
     renderCrumbs(doc.OutlineID);
     renderMarkdown(doc.Text || "");
     renderTOC();
     document.querySelector(".viewer").scrollTop = 0;
+}
+
+async function refreshCurrentDoc() {
+    if (!currentOID) return;
+    let doc;
+    try {
+        doc = await go().GetDocument(currentOID);
+    } catch (e) {
+        showToast("Документ удалён", "Документ больше не существует на сервере", true);
+        return;
+    }
+    if ((doc.UpdatedAt || "") === currentDocUpdated) return;
+    const viewer = document.querySelector(".viewer");
+    const scroll = viewer.scrollTop;
+    const s = await go().GetSettings().catch(() => null);
+    showDoc(doc, (s && s.apiURL) || "");
+    viewer.scrollTop = scroll;
+    if (find.open) runFind();
+    showToast("Документ обновлён", doc.Title || "", false);
 }
 
 function renderDocLink(doc, base) {
@@ -642,10 +935,11 @@ function renderCrumbs(oid) {
 
 function renderMarkdown(md) {
     const el = $("docContent");
-    el.innerHTML = DOMPurify.sanitize(marked.parse(md), {
+    el.innerHTML = DOMPurify.sanitize(transformNotices(md, 0), {
         ADD_TAGS: ["input"],
         ADD_ATTR: ["type", "checked", "disabled"],
     });
+    applyInlineMarks(el);
     el.querySelectorAll("img").forEach((img) => {
         const src = img.getAttribute("src") || "";
         if (src.includes("attachments.redirect")) {
@@ -653,6 +947,10 @@ function renderMarkdown(md) {
             if (id) img.src = "/img?id=" + encodeURIComponent(id);
         }
         img.loading = "lazy";
+        img.addEventListener("error", () => {
+            img.classList.add("img-missing");
+            img.alt = "Вложение не закэшировано — подключитесь к сети и синхронизируйте";
+        });
     });
     el.querySelectorAll("table").forEach((t) => {
         const wrap = document.createElement("div");
@@ -667,50 +965,123 @@ function renderMarkdown(md) {
         btn.className = "copy-btn";
         btn.textContent = "Копировать";
         btn.addEventListener("click", async () => {
-            const ok = await window.runtime.ClipboardSetText(pre.innerText);
+            const text = pre.innerText;
+            const ok = await window.runtime.ClipboardSetText(text);
             btn.textContent = ok ? "Скопировано" : "Ошибка";
+            if (ok) scheduleClipClear(text);
             setTimeout(() => { btn.textContent = "Копировать"; }, 1500);
         });
         wrap.appendChild(btn);
     });
 }
 
-function renderTOC() {
-	const panel = $("tocPanel");
-	const content = $("tocContent");
-	const btn = $("tocBtn");
-	const headings = $("docContent").querySelectorAll("h1, h2, h3");
+function transformNotices(md, depth) {
+    if (depth > 4) return marked.parse(md);
+    const lines = md.split("\n");
+    const parts = [];
+    let plain = [];
+    let fence = null;
+    let i = 0;
+    const flush = () => {
+        if (plain.length) { parts.push(marked.parse(plain.join("\n"))); plain = []; }
+    };
+    while (i < lines.length) {
+        const line = lines[i];
+        const fm = line.match(/^\s*(```+|~~~+)/);
+        if (fm) {
+            if (fence) fence = null; else fence = fm[1];
+            plain.push(line); i++; continue;
+        }
+        const om = !fence ? line.match(/^:::\s*(info|tip|warning|danger|success)\s*$/) : null;
+        if (om) {
+            flush();
+            const kind = om[1];
+            const inner = [];
+            let innerFence = null;
+            i++;
+            while (i < lines.length) {
+                const l = lines[i];
+                const f2 = l.match(/^\s*(```+|~~~+)/);
+                if (f2) { innerFence = innerFence ? null : f2[1]; inner.push(l); i++; continue; }
+                if (!innerFence && /^:::\s*$/.test(l)) { i++; break; }
+                inner.push(l); i++;
+            }
+            parts.push('<div class="notice notice-' + kind + '">' + transformNotices(inner.join("\n"), depth + 1) + "</div>");
+            continue;
+        }
+        plain.push(line); i++;
+    }
+    flush();
+    return parts.join("\n");
+}
 
-	content.innerHTML = "";
-	if (headings.length > 0) {
-		btn.disabled = false;
-		headings.forEach((h, i) => {
-			const id = "toc-heading-" + i;
-			h.id = id;
-			const item = document.createElement("a");
-			item.className = "toc-item toc-" + h.tagName.toLowerCase();
-			item.textContent = h.textContent;
-			item.href = "#" + id;
-			item.addEventListener("click", (e) => {
-				e.preventDefault();
-				h.scrollIntoView({ behavior: "smooth", block: "start" });
-			});
-			content.appendChild(item);
-		});
-	} else {
-		btn.disabled = true;
-	}
-	applyTocOpen(tocOpen);
+function applyInlineMarks(root) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode(n) {
+            if (!n.nodeValue || (!n.nodeValue.includes("==") && !n.nodeValue.includes("++"))) return NodeFilter.FILTER_REJECT;
+            const p = n.parentElement;
+            if (!p || p.closest("pre, code, script, style")) return NodeFilter.FILTER_REJECT;
+            return NodeFilter.FILTER_ACCEPT;
+        },
+    });
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    const re = /==(?=\S)([^=]+?)(?<=\S)==|\+\+(?=\S)([^+]+?)(?<=\S)\+\+/g;
+    for (const node of nodes) {
+        const text = node.nodeValue;
+        re.lastIndex = 0;
+        if (!re.test(text)) continue;
+        re.lastIndex = 0;
+        const frag = document.createDocumentFragment();
+        let last = 0, m;
+        while ((m = re.exec(text)) !== null) {
+            if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+            const el = document.createElement(m[1] !== undefined ? "mark" : "u");
+            el.textContent = m[1] !== undefined ? m[1] : m[2];
+            frag.appendChild(el);
+            last = m.index + m[0].length;
+        }
+        if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+        node.parentNode.replaceChild(frag, node);
+    }
+}
+
+function renderTOC() {
+    const panel = $("tocPanel");
+    const content = $("tocContent");
+    const btn = $("tocBtn");
+    const headings = $("docContent").querySelectorAll("h1, h2, h3");
+
+    content.innerHTML = "";
+    if (headings.length > 0) {
+        btn.disabled = false;
+        headings.forEach((h, i) => {
+            const id = "toc-heading-" + i;
+            h.id = id;
+            const item = document.createElement("a");
+            item.className = "toc-item toc-" + h.tagName.toLowerCase();
+            item.textContent = h.textContent;
+            item.href = "#" + id;
+            item.addEventListener("click", (e) => {
+                e.preventDefault();
+                h.scrollIntoView({ behavior: "smooth", block: "start" });
+            });
+            content.appendChild(item);
+        });
+    } else {
+        btn.disabled = true;
+    }
+    applyTocOpen(tocOpen);
 }
 
 function applyTocOpen(v) {
-	tocOpen = !!v;
-	localStorage.setItem("or.tocOpen", tocOpen ? "1" : "0");
-	const hasItems = $("tocContent").children.length > 0;
-	const show = tocOpen && hasItems;
-	$("tocPanel").style.display = show ? "block" : "none";
-	$("tocBtn").classList.toggle("active", show);
-	$("docViewer").classList.toggle("toc-open", show);
+    tocOpen = !!v;
+    localStorage.setItem("or.tocOpen", tocOpen ? "1" : "0");
+    const hasItems = $("tocContent").children.length > 0;
+    const show = tocOpen && hasItems;
+    $("tocPanel").style.display = show ? "block" : "none";
+    $("tocBtn").classList.toggle("active", show);
+    $("docViewer").classList.toggle("toc-open", show);
 }
 
 async function onContentClick(e) {
@@ -718,16 +1089,14 @@ async function onContentClick(e) {
     if (code && !code.closest("pre")) {
         const text = code.textContent;
         if (!text) return;
-        window.runtime.ClipboardSetText(text).then((ok) => {
-            showToast(ok ? "Скопировано" : "Ошибка", text.slice(0, 80), !ok);
-        });
+        copySensitive(text, text.slice(0, 80));
         return;
     }
-    
+
     const a = e.target.closest("a");
     if (!a) return;
     let href = a.getAttribute("href") || "";
-    
+
     if (href.startsWith("http")) {
         try {
             const urlObj = new URL(href);
@@ -739,15 +1108,15 @@ async function onContentClick(e) {
         e.preventDefault();
         const path = href.split(/[?#]/)[0].replace(/\/+$/, "");
         const slug = path.replace("/doc/", "");
-        
+
         const candidates = new Set();
         candidates.add(slug);
-        
+
         if (slug.includes("-")) {
             const parts = slug.split("-");
-            candidates.add(parts[parts.length - 1]); 
+            candidates.add(parts[parts.length - 1]);
         }
-                
+
         let found = false;
         for (const candidate of candidates) {
             try {
@@ -759,7 +1128,7 @@ async function onContentClick(e) {
                 }
             } catch (err) { }
         }
-        
+
         if (!found) {
             showToast("Документ не найден", "Выполните синхронизацию или внутренняя ошибка", true);
         }
@@ -789,7 +1158,7 @@ async function onContentClick(e) {
         }
         return;
     }
-    
+
     if (/^https?:/i.test(href)) {
         e.preventDefault();
         window.runtime.BrowserOpenURL(href);
@@ -982,16 +1351,24 @@ function findPrev() { stepFind(-1); }
 
 /* ---------- Синхронизация / обновления / статус ---------- */
 
+function fmtDelta(res) {
+    const p = [];
+    if (res.added) p.push("+" + res.added + " новых");
+    if (res.updated) p.push(res.updated + " обновлено");
+    if (res.deleted) p.push(res.deleted + " удалено");
+    return p.length ? p.join(", ") : "без изменений";
+}
+
 async function syncNow() {
     const btn = $("syncBtn");
     btn.classList.add("spin"); btn.disabled = true;
     try {
-        const n = await go().SyncDocuments();
+        const res = await go().SyncDocuments();
         setNet(true);
-        showToast("Синхронизация завершена", "Документов в базе: " + n, false);
+        showToast("Синхронизация завершена", "Документов: " + res.total + " · " + fmtDelta(res), false);
         await loadTree();
-        updateLastSync();
-        if (currentOID) openDocument(currentOID);
+        updateStatus();
+        await refreshCurrentDoc();
     } catch (err) {
         setNet(false);
         showToast("Ошибка синхронизации", String(err), true);
@@ -1015,8 +1392,8 @@ async function checkUpdates() {
             $("updateNotification").style.display = "block";
             setTimeout(() => { $("updateNotification").style.display = "none"; }, 6000);
             await loadTree();
-            updateLastSync();
-            if (currentOID) openDocument(currentOID);
+            updateStatus();
+            await refreshCurrentDoc();
         }
     } catch (err) {
         setNet(false);
@@ -1065,11 +1442,11 @@ function applyFullWidth(v) {
 }
 
 function applyFontScale(v) {
-	fontScale = Math.round(v * 10) / 10;
-	fontScale = Math.max(0.7, Math.min(2.0, fontScale));
-	localStorage.setItem("or.fontScale", String(fontScale));
-	document.documentElement.style.setProperty("--font-scale", String(fontScale));
-	updateZoomIndicator();
+    fontScale = Math.round(v * 10) / 10;
+    fontScale = Math.max(0.7, Math.min(2.0, fontScale));
+    localStorage.setItem("or.fontScale", String(fontScale));
+    document.documentElement.style.setProperty("--font-scale", String(fontScale));
+    updateZoomIndicator();
 }
 
 function zoomIn()    { applyFontScale(fontScale + 0.1); }
@@ -1077,15 +1454,15 @@ function zoomOut()   { applyFontScale(fontScale - 0.1); }
 function zoomReset() { applyFontScale(1); }
 
 function updateZoomIndicator() {
-	const el = $("zoomIndicator");
-	if (!el) return;
-	const pct = Math.round(fontScale * 100);
-	if (pct === 100) {
-		el.style.display = "none";
-	} else {
-		el.textContent = pct + "%";
-		el.style.display = "inline-flex";
-	}
+    const el = $("zoomIndicator");
+    if (!el) return;
+    const pct = Math.round(fontScale * 100);
+    if (pct === 100) {
+        el.style.display = "none";
+    } else {
+        el.textContent = pct + "%";
+        el.style.display = "inline-flex";
+    }
 }
 
 function initResizer() {

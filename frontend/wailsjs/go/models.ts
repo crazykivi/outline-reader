@@ -98,6 +98,62 @@ export namespace main {
 	        this.dbPath = source["dbPath"];
 	    }
 	}
+	export class StorageStatus {
+	    portable: boolean;
+	    locked: boolean;
+	    hasDB: boolean;
+	    dataDir: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new StorageStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.portable = source["portable"];
+	        this.locked = source["locked"];
+	        this.hasDB = source["hasDB"];
+	        this.dataDir = source["dataDir"];
+	    }
+	}
+	export class SyncResult {
+	    total: number;
+	    added: number;
+	    updated: number;
+	    deleted: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.total = source["total"];
+	        this.added = source["added"];
+	        this.updated = source["updated"];
+	        this.deleted = source["deleted"];
+	    }
+	}
+	export class SyncStats {
+	    lastSync: string;
+	    total: number;
+	    added: number;
+	    updated: number;
+	    deleted: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.lastSync = source["lastSync"];
+	        this.total = source["total"];
+	        this.added = source["added"];
+	        this.updated = source["updated"];
+	        this.deleted = source["deleted"];
+	    }
+	}
 
 }
 

@@ -10,6 +10,10 @@ export function CheckForUpdates() {
   return window['go']['main']['App']['CheckForUpdates']();
 }
 
+export function Context() {
+  return window['go']['main']['App']['Context']();
+}
+
 export function GetDocument(arg1) {
   return window['go']['main']['App']['GetDocument'](arg1);
 }
@@ -18,16 +22,36 @@ export function GetDocumentByURLID(arg1) {
   return window['go']['main']['App']['GetDocumentByURLID'](arg1);
 }
 
+export function GetFavorites() {
+  return window['go']['main']['App']['GetFavorites']();
+}
+
 export function GetLastSyncTime() {
   return window['go']['main']['App']['GetLastSyncTime']();
+}
+
+export function GetRecent() {
+  return window['go']['main']['App']['GetRecent']();
 }
 
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
+export function GetSyncStats() {
+  return window['go']['main']['App']['GetSyncStats']();
+}
+
 export function GetTree() {
   return window['go']['main']['App']['GetTree']();
+}
+
+export function IsFavorite(arg1) {
+  return window['go']['main']['App']['IsFavorite'](arg1);
+}
+
+export function LockApp() {
+  return window['go']['main']['App']['LockApp']();
 }
 
 export function ResetApp() {
@@ -38,6 +62,10 @@ export function SearchDocuments(arg1) {
   return window['go']['main']['App']['SearchDocuments'](arg1);
 }
 
+export function SetCaptureProtection(arg1) {
+  return window['go']['main']['App']['SetCaptureProtection'](arg1);
+}
+
 export function SetConnection(arg1, arg2) {
   return window['go']['main']['App']['SetConnection'](arg1, arg2);
 }
@@ -46,6 +74,18 @@ export function StorageInfo() {
   return window['go']['main']['App']['StorageInfo']();
 }
 
+export function StorageStatus() {
+  return window['go']['main']['App']['StorageStatus']();
+}
+
 export function SyncDocuments() {
   return window['go']['main']['App']['SyncDocuments']();
+}
+
+export function ToggleFavorite(arg1) {
+  return window['go']['main']['App']['ToggleFavorite'](arg1);
+}
+
+export function UnlockDB(arg1) {
+  return window['go']['main']['App']['UnlockDB'](arg1);
 }
