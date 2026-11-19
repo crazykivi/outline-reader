@@ -86,6 +86,10 @@ export function ToggleFavorite(arg1) {
   return window['go']['main']['App']['ToggleFavorite'](arg1);
 }
 
+export function TrySyncDocuments() {
+  return window['go']['main']['App']['TrySyncDocuments']();
+}
+
 export function UnlockDB(arg1) {
   return window['go']['main']['App']['UnlockDB'](arg1);
 }

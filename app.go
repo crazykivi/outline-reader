@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -24,6 +25,7 @@ const fullSyncInterval = time.Hour
 const maxBlobSize = 32 << 20
 
 var attachmentRe = regexp.MustCompile(`attachments\.redirect\?id=([0-9a-fA-F-]{36})`)
+var errSyncInProgress = errors.New("синхронизация уже выполняется")
 
 type App struct {
 	mu       sync.RWMutex
@@ -311,7 +313,7 @@ func (a *App) syncLoop(ctx context.Context) {
 			if a.getClient() == nil {
 				continue
 			}
-			if _, err := a.SyncDocuments(); err != nil {
+			if _, err := a.TrySyncDocuments(); err != nil && !errors.Is(err, errSyncInProgress) {
 				log.Printf("[SYNC] periodic: %v", err)
 			}
 		}
@@ -526,6 +528,14 @@ type SyncResult struct {
 
 func (a *App) SyncDocuments() (SyncResult, error) {
 	a.opMu.Lock()
+	defer a.opMu.Unlock()
+	return a.syncLocked()
+}
+
+func (a *App) TrySyncDocuments() (SyncResult, error) {
+	if !a.opMu.TryLock() {
+		return SyncResult{}, errSyncInProgress
+	}
 	defer a.opMu.Unlock()
 	return a.syncLocked()
 }

@@ -28,6 +28,7 @@ let isPortable = false, captureProtect = false;
 let favorites = [];
 let activeSource = "tree";
 let clipTimer = null;
+let syncing = false;
 let guardTimer = null, guardLeft = 0;
 
 const IDLE_LOCK_MS = 5 * 60 * 1000;
@@ -1433,24 +1434,31 @@ function fmtDelta(res) {
 }
 
 async function syncNow() {
+    if (syncing) return;
+    syncing = true;
     const btn = $("syncBtn");
     btn.classList.add("spin"); btn.disabled = true;
     try {
-        const res = await go().SyncDocuments();
+        const res = await go().TrySyncDocuments();
         setNet(true);
         showToast("Синхронизация завершена", "Документов: " + res.total + " · " + fmtDelta(res), false);
         await loadTree();
         updateStatus();
         await refreshCurrentDoc();
     } catch (err) {
-        setNet(false);
-        showToast("Ошибка синхронизации", String(err), true);
+        const msg = String(err);
+        if (!msg.includes("уже выполняется")) {
+            setNet(false);
+            showToast("Ошибка синхронизации", msg, true);
+        }
     } finally {
+        syncing = false;
         btn.classList.remove("spin"); btn.disabled = false;
     }
 }
 
 async function checkUpdates() {
+    if (syncing) return;
     try {
         const titles = await go().CheckForUpdates();
         setNet(true);
