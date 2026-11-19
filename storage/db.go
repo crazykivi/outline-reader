@@ -11,11 +11,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ncruces/go-sqlite3"
+	"github.com/ncruces/go-sqlite3/ext/fts5"
 	"github.com/ncruces/go-sqlite3/gormlite"
 	_ "github.com/ncruces/go-sqlite3/vfs/adiantum"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+func init() {
+	sqlite3.AutoExtension(fts5.Register)
+}
 
 type Document struct {
 	ID           uint   `gorm:"primaryKey"`
