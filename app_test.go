@@ -73,6 +73,7 @@ func newTestApp(t *testing.T) *App {
 	a.dbPath = filepath.Join(t.TempDir(), "test.db")
 	ctx, cancel := context.WithCancel(context.Background())
 	a.startup(ctx)
+	require.NoError(t, a.UnlockDB("test-master-pass"))
 	t.Cleanup(func() {
 		if db := a.getDB(); db != nil {
 			_ = db.Close()
@@ -192,7 +193,7 @@ func TestResetAppWipesLocalOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, a.ResetApp())
-
+	require.NoError(t, a.UnlockDB("test-master-pass"))
 	s, err := a.GetSettings()
 	require.NoError(t, err)
 	assert.Empty(t, s.APIURL)
@@ -221,6 +222,7 @@ func TestSettingsSurviveRestart(t *testing.T) {
 
 	a := NewApp()
 	a.dbPath = path
+	require.NoError(t, a.UnlockDB("test-master-pass"))
 	require.NoError(t, a.SetConnection(srv.URL, "good"))
 	_, err := a.SyncDocuments()
 	require.NoError(t, err)
@@ -228,6 +230,7 @@ func TestSettingsSurviveRestart(t *testing.T) {
 
 	b := NewApp()
 	b.dbPath = path
+	require.NoError(t, b.UnlockDB("test-master-pass"))
 	t.Cleanup(func() {
 		if db := b.getDB(); db != nil {
 			_ = db.Close()
@@ -382,7 +385,7 @@ func TestLockUnlockKeepsData(t *testing.T) {
 	_, err = a.GetDocument("d1")
 	assert.Error(t, err)
 
-	require.NoError(t, a.UnlockDB(""))
+	require.NoError(t, a.UnlockDB("test-master-pass"))
 	doc, err := a.GetDocument("d1")
 	require.NoError(t, err)
 	assert.Equal(t, "Root", doc.Title)

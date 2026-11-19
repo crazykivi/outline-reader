@@ -74,15 +74,8 @@ func (a *App) init() error {
 	} else {
 		a.dataDir = filepath.Dir(a.dbPath)
 	}
-	if a.portable {
-		log.Printf("[APP] portable: база заблокирована до ввода пароля")
-		return nil
-	}
-	keyHex, err := crypto.LoadOrCreateDPAPIKey(a.dataDir)
-	if err != nil {
-		return fmt.Errorf("ключ базы: %w", err)
-	}
-	return a.openDB(keyHex)
+	log.Printf("[APP] база заблокирована, нужен мастер-пароль (portable=%v)", a.portable)
+	return nil
 }
 
 func (a *App) openDB(keyHex string) error {
@@ -172,18 +165,25 @@ type StorageStatus struct {
 	Portable bool   `json:"portable"`
 	Locked   bool   `json:"locked"`
 	HasDB    bool   `json:"hasDB"`
+	Legacy   bool   `json:"legacy"`
 	DataDir  string `json:"dataDir"`
+}
+
+func dbFileExists(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && st.Size() > 0
 }
 
 func (a *App) StorageStatus() (StorageStatus, error) {
 	if err := a.ensure(); err != nil {
 		return StorageStatus{}, err
 	}
-	_, statErr := os.Stat(a.dbPath)
+	hasDB := dbFileExists(a.dbPath)
 	return StorageStatus{
 		Portable: a.portable,
 		Locked:   a.getDB() == nil,
-		HasDB:    statErr == nil,
+		HasDB:    hasDB,
+		Legacy:   hasDB && !crypto.HasMasterSalt(a.dataDir),
 		DataDir:  a.dataDir,
 	}, nil
 }
@@ -209,21 +209,30 @@ func (a *App) UnlockDB(passphrase string) error {
 	if a.getDB() != nil {
 		return nil
 	}
-	if !a.portable {
-		keyHex, err := crypto.LoadOrCreateDPAPIKey(a.dataDir)
+	if !dbFileExists(a.dbPath) {
+		if len(passphrase) < 8 {
+			return fmt.Errorf("мастер-пароль должен быть не короче 8 символов")
+		}
+		keyHex, err := crypto.CreateMasterKey(a.dataDir, passphrase, false)
 		if err != nil {
 			return err
 		}
 		return a.openDB(keyHex)
 	}
-	if len(passphrase) < 8 {
-		return fmt.Errorf("пароль должен быть не короче 8 символов")
+	if !crypto.HasMasterSalt(a.dataDir) {
+		return fmt.Errorf("база создана без мастер-пароля (старый формат): очистите локальную базу и создайте заново")
 	}
-	keyHex, err := crypto.DerivePortableKey(a.dataDir, passphrase)
+	if len(passphrase) < 8 {
+		return fmt.Errorf("введите мастер-пароль")
+	}
+	keyHex, err := crypto.DeriveMasterKey(a.dataDir, passphrase)
 	if err != nil {
 		return err
 	}
-	return a.openDB(keyHex)
+	if err := a.openDB(keyHex); err != nil {
+		return fmt.Errorf("неверный мастер-пароль или база повреждена")
+	}
+	return nil
 }
 
 func (a *App) syncLoop(ctx context.Context) {
@@ -743,14 +752,7 @@ func (a *App) ResetApp() error {
 		_ = os.Remove(a.dbPath + suf)
 	}
 	_ = os.Remove(filepath.Join(a.dataDir, "db.salt"))
-	if a.portable {
-		log.Printf("[APP] storage reset, база снова заблокирована")
-		return nil
-	}
 	_ = os.Remove(filepath.Join(a.dataDir, "db.key"))
-	keyHex, err := crypto.LoadOrCreateDPAPIKey(a.dataDir)
-	if err != nil {
-		return err
-	}
-	return a.openDB(keyHex)
+	log.Printf("[APP] storage reset, мастер-пароль будет задан заново")
+	return nil
 }

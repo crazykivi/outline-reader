@@ -102,6 +102,7 @@ export namespace main {
 	    portable: boolean;
 	    locked: boolean;
 	    hasDB: boolean;
+	    legacy: boolean;
 	    dataDir: string;
 	
 	    static createFrom(source: any = {}) {
@@ -113,6 +114,7 @@ export namespace main {
 	        this.portable = source["portable"];
 	        this.locked = source["locked"];
 	        this.hasDB = source["hasDB"];
+	        this.legacy = source["legacy"];
 	        this.dataDir = source["dataDir"];
 	    }
 	}
