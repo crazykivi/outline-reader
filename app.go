@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -82,6 +83,7 @@ func (a *App) init() error {
 	} else {
 		a.dataDir = filepath.Dir(a.dbPath)
 	}
+	a.cleanupLeftovers()
 	log.Printf("[APP] база заблокирована, нужен мастер-пароль (portable=%v)", a.portable)
 	return nil
 }
@@ -103,6 +105,20 @@ func (a *App) openDB(keyHex string) error {
 	}
 	log.Printf("[APP] база открыта, portable=%v", a.portable)
 	return nil
+}
+
+func (a *App) cleanupLeftovers() {
+	plain := a.dbPath + ".plain"
+	if _, err := os.Stat(plain); err != nil {
+		return
+	}
+	suffixes := []string{"", "-wal", "-shm", "-journal"}
+	if dbFileExists(a.dbPath) && !storage.IsPlaintextDB(a.dbPath) {
+		for _, suf := range suffixes {
+			_ = os.Remove(plain + suf)
+		}
+		log.Printf("[DB] удалена plaintext-копия после завершённой миграции")
+	}
 }
 
 func (a *App) guardPath() string { return filepath.Join(a.dataDir, "unlock.guard") }
@@ -269,7 +285,7 @@ func (a *App) UnlockDB(passphrase string) error {
 		if len(passphrase) < 8 {
 			return fmt.Errorf("мастер-пароль должен быть не короче 8 символов")
 		}
-		keyHex, err := crypto.CreateMasterKey(a.dataDir, passphrase, false)
+		keyHex, err := crypto.CreateMasterKey(a.dataDir, passphrase)
 		if err != nil {
 			return err
 		}
@@ -370,6 +386,14 @@ func (a *App) SetConnection(apiURL, apiKey string) error {
 		return err
 	}
 	apiURL = strings.TrimRight(strings.TrimSpace(apiURL), "/")
+	u, err := url.Parse(apiURL)
+	if err != nil {
+		return fmt.Errorf("некорректный URL сервера")
+	}
+	host := u.Hostname()
+	if u.Scheme != "https" && host != "localhost" && host != "127.0.0.1" && host != "::1" {
+		return fmt.Errorf("разрешён только https (или loopback для локального сервера)")
+	}
 	apiKey = strings.TrimSpace(apiKey)
 	if apiURL == "" || apiKey == "" {
 		return fmt.Errorf("укажите URL сервера и API-ключ")
