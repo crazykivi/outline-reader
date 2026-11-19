@@ -66,6 +66,36 @@ func DecryptWithDPAPI(encoded string) (string, error) {
 	return string(result), nil
 }
 
+func ProtectBytes(data []byte) ([]byte, error) {
+	if runtime.GOOS != "windows" {
+		return nil, errors.New("DPAPI доступен только на Windows")
+	}
+	in := windows.DataBlob{Size: uint32(len(data)), Data: &data[0]}
+	var out windows.DataBlob
+	if err := windows.CryptProtectData(&in, nil, nil, 0, nil, 0, &out); err != nil {
+		return nil, err
+	}
+	defer windows.LocalFree(windows.Handle(uintptr(unsafe.Pointer(out.Data))))
+	res := make([]byte, out.Size)
+	copy(res, unsafe.Slice(out.Data, out.Size))
+	return res, nil
+}
+
+func UnprotectBytes(enc []byte) ([]byte, error) {
+	if runtime.GOOS != "windows" {
+		return nil, errors.New("DPAPI доступен только на Windows")
+	}
+	in := windows.DataBlob{Size: uint32(len(enc)), Data: &enc[0]}
+	var out windows.DataBlob
+	if err := windows.CryptUnprotectData(&in, nil, nil, 0, nil, 0, &out); err != nil {
+		return nil, err
+	}
+	defer windows.LocalFree(windows.Handle(uintptr(unsafe.Pointer(out.Data))))
+	res := make([]byte, out.Size)
+	copy(res, unsafe.Slice(out.Data, out.Size))
+	return res, nil
+}
+
 func EncryptIfPossible(plaintext string) string {
 	encrypted, err := EncryptWithDPAPI(plaintext)
 	if err != nil {
