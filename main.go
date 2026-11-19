@@ -82,6 +82,10 @@ func main() {
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
 			WebviewUserDataPath:  profileDir,
+			OnSuspend: func() {
+				_ = app.LockApp()
+				log.Printf("[APP] система уходит в сон, база заблокирована")
+			},
 		},
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId: uniqueID,
