@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -12,16 +11,13 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-const (
-	masterSaltFile = "db.salt"
-	masterKeyFile  = "db.key"
-)
+const masterSaltFile = "db.salt"
 
 func masterKeyParams(passphrase string, salt []byte) []byte {
-	return argon2.IDKey([]byte(passphrase), salt, 3, 64*1024, 4, 32)
+	return argon2.IDKey([]byte(passphrase), salt, 4, 128*1024, 4, 32)
 }
 
-func CreateMasterKey(dataDir, passphrase string, cacheDPAPI bool) (string, error) {
+func CreateMasterKey(dataDir, passphrase string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
@@ -30,11 +26,6 @@ func CreateMasterKey(dataDir, passphrase string, cacheDPAPI bool) (string, error
 		return "", err
 	}
 	key := masterKeyParams(passphrase, salt)
-	if cacheDPAPI {
-		if enc, err := ProtectBytes(key); err == nil {
-			_ = os.WriteFile(filepath.Join(dataDir, masterKeyFile), enc, 0o600)
-		}
-	}
 	log.Printf("[CRYPTO] мастер-пароль установлен, база создана")
 	return hex.EncodeToString(key), nil
 }
@@ -48,31 +39,6 @@ func DeriveMasterKey(dataDir, passphrase string) (string, error) {
 		return "", errors.New("db.salt повреждён")
 	}
 	return hex.EncodeToString(masterKeyParams(passphrase, salt)), nil
-}
-
-func LoadCachedKey(dataDir string) (string, error) {
-	raw, err := os.ReadFile(filepath.Join(dataDir, masterKeyFile))
-	if err != nil {
-		return "", err
-	}
-	key, err := UnprotectBytes(raw)
-	if err != nil {
-		return "", fmt.Errorf("db.key не расшифровывается: %w", err)
-	}
-	if len(key) != 32 {
-		return "", errors.New("db.key: неверная длина ключа")
-	}
-	return hex.EncodeToString(key), nil
-}
-
-func CacheKey(dataDir, keyHex string) {
-	key, err := hex.DecodeString(keyHex)
-	if err != nil || len(key) != 32 {
-		return
-	}
-	if enc, err := ProtectBytes(key); err == nil {
-		_ = os.WriteFile(filepath.Join(dataDir, masterKeyFile), enc, 0o600)
-	}
 }
 
 func HasMasterSalt(dataDir string) bool {

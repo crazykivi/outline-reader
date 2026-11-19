@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Outline Reader</title>
     <link rel="stylesheet" href="style.css">
+    <meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'self'; img-src 'self' data: blob:; media-src 'self' blob:;">
 </head>
 <body>
 <div class="app">
@@ -16,7 +17,7 @@
             </div>
             <div class="setup-form">
                 <input type="text" id="apiUrl" placeholder="URL сервера (https://outline.example.com)" spellcheck="false" autocomplete="off">
-                <input type="password" id="apiKey" placeholder="API-ключ (ol_api_...)" spellcheck="false" autocomplete="off">
+                <input type="password" id="apiKey" placeholder="API-ключ (ol_api_...)" spellcheck="false" autocomplete="off" data-1p-ignore data-lpignore="true">
                 <div id="setupError" class="setup-error"></div>
                 <button id="connectBtn" class="btn-primary">Подключиться</button>
             </div>
@@ -29,8 +30,8 @@
                 <p id="lockSubtitle">База зашифрована</p>
             </div>
             <div class="setup-form">
-                <input type="password" id="lockPass" placeholder="Пароль базы" spellcheck="false" autocomplete="off">
-                <input type="password" id="lockPass2" placeholder="Повторите пароль" spellcheck="false" autocomplete="off" style="display:none">
+                <input type="password" id="lockPass" placeholder="Пароль базы" spellcheck="false" autocomplete="off" data-1p-ignore data-lpignore="true">
+                <input type="password" id="lockPass2" placeholder="Повторите пароль" spellcheck="false" autocomplete="off" style="display:none" data-1p-ignore data-lpignore="true">
                 <div id="lockError" class="setup-error"></div>
                 <button id="lockBtn" class="btn-primary">Открыть</button>
                 <button id="lockReset" class="btn-secondary" style="display:none">Очистить локальную базу</button>
@@ -225,7 +226,7 @@
                     </div>
                     <div class="field">
                         <label for="connKey">API-ключ</label>
-                        <input type="password" id="connKey" placeholder="ol_api_..." spellcheck="false" autocomplete="off">
+                        <input type="password" id="connKey" placeholder="ol_api_..." spellcheck="false" autocomplete="off" data-1p-ignore data-lpignore="true">
                     </div>
                     <div id="connError" class="setup-error"></div>
                     <p class="modal-note">Ридер только читает данные и хранит копию локально. Ключ используется лишь для запросов к серверу Outline.</p>
