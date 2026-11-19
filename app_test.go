@@ -7,12 +7,15 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"outline-reader/storage"
 )
 
 type fakeOutline struct {
@@ -105,9 +108,9 @@ func TestSyncTreeSearchAndURLID(t *testing.T) {
 	a := newTestApp(t)
 	require.NoError(t, a.SetConnection(srv.URL, "good"))
 
-	n, err := a.SyncDocuments()
+	res, err := a.SyncDocuments()
 	require.NoError(t, err)
-	assert.Equal(t, 2, n)
+	assert.Equal(t, 2, res.Total)
 
 	tree, err := a.GetTree()
 	require.NoError(t, err)
@@ -171,9 +174,9 @@ func TestSyncWithoutURLField(t *testing.T) {
 
 	a := newTestApp(t)
 	require.NoError(t, a.SetConnection(srv.URL, "good"))
-	n, err := a.SyncDocuments()
+	res, err := a.SyncDocuments()
 	require.NoError(t, err)
-	assert.Equal(t, 2, n)
+	assert.Equal(t, 2, res.Total)
 
 	doc, err := a.GetDocument("d1")
 	require.NoError(t, err)
@@ -207,9 +210,9 @@ func TestResetAppWipesLocalOnly(t *testing.T) {
 	f.mu.Unlock()
 
 	require.NoError(t, a.SetConnection(srv.URL, "good"))
-	n, err := a.SyncDocuments()
+	res, err := a.SyncDocuments()
 	require.NoError(t, err)
-	assert.Equal(t, 2, n)
+	assert.Equal(t, 2, res.Total)
 }
 
 func TestSettingsSurviveRestart(t *testing.T) {
@@ -256,9 +259,10 @@ func TestSyncRemovesDeletedDocuments(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, titles)
 
-	n, err := a.SyncDocuments()
+	res, err := a.SyncDocuments()
 	require.NoError(t, err)
-	assert.Equal(t, 1, n)
+	assert.Equal(t, 1, res.Total)
+	assert.Equal(t, 1, res.Deleted)
 
 	_, err = a.GetDocument("d2")
 	assert.Error(t, err)
@@ -292,4 +296,144 @@ func TestStorageInfoReportsPaths(t *testing.T) {
 	assert.False(t, info.Portable)
 	assert.Equal(t, a.dbPath, info.DBPath)
 	assert.Equal(t, filepath.Dir(a.dbPath), info.DataDir)
+}
+
+func TestEncryptedDBWrongKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.db")
+	keyA := strings.Repeat("ab", 32)
+	keyB := strings.Repeat("cd", 32)
+
+	db, err := storage.NewDB(path, keyA)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	assert.False(t, storage.IsPlaintextDB(path))
+
+	_, err = storage.NewDB(path, keyB)
+	require.Error(t, err)
+
+	db2, err := storage.NewDB(path, keyA)
+	require.NoError(t, err)
+	require.NoError(t, db2.Close())
+}
+
+func TestMigratePlaintext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.db")
+	db, err := storage.NewDB(path, "")
+	require.NoError(t, err)
+	require.NoError(t, db.SaveSettings(&storage.Settings{APIURL: "https://x", APIKey: "k"}))
+	require.NoError(t, db.Close())
+	require.True(t, storage.IsPlaintextDB(path))
+
+	key := strings.Repeat("ab", 32)
+	require.NoError(t, storage.MigratePlaintext(path, key))
+	assert.False(t, storage.IsPlaintextDB(path))
+
+	db2, err := storage.NewDB(path, key)
+	require.NoError(t, err)
+	defer db2.Close()
+	s, err := db2.GetSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "https://x", s.APIURL)
+	assert.Equal(t, "k", s.APIKey)
+}
+
+func TestSyncDiffCounters(t *testing.T) {
+	f, srv := newFakeOutline(t)
+	a := newTestApp(t)
+	require.NoError(t, a.SetConnection(srv.URL, "good"))
+
+	res, err := a.SyncDocuments()
+	require.NoError(t, err)
+	assert.Equal(t, SyncResult{Total: 2, Added: 2}, res)
+
+	res, err = a.SyncDocuments()
+	require.NoError(t, err)
+	assert.Equal(t, SyncResult{Total: 2}, res)
+
+	f.mu.Lock()
+	f.docs[0]["updatedAt"] = time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	f.docs = f.docs[:1]
+	f.mu.Unlock()
+
+	res, err = a.SyncDocuments()
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.Total)
+	assert.Equal(t, 1, res.Updated)
+	assert.Equal(t, 1, res.Deleted)
+
+	st, err := a.GetSyncStats()
+	require.NoError(t, err)
+	assert.Equal(t, 1, st.Total)
+	assert.Equal(t, 1, st.Deleted)
+	assert.NotEmpty(t, st.LastSync)
+}
+
+func TestLockUnlockKeepsData(t *testing.T) {
+	_, srv := newFakeOutline(t)
+	a := newTestApp(t)
+	require.NoError(t, a.SetConnection(srv.URL, "good"))
+	_, err := a.SyncDocuments()
+	require.NoError(t, err)
+
+	require.NoError(t, a.LockApp())
+	st, err := a.StorageStatus()
+	require.NoError(t, err)
+	assert.True(t, st.Locked)
+	_, err = a.GetDocument("d1")
+	assert.Error(t, err)
+
+	require.NoError(t, a.UnlockDB(""))
+	doc, err := a.GetDocument("d1")
+	require.NoError(t, err)
+	assert.Equal(t, "Root", doc.Title)
+}
+
+func TestFavoritesAndRecents(t *testing.T) {
+	_, srv := newFakeOutline(t)
+	a := newTestApp(t)
+	require.NoError(t, a.SetConnection(srv.URL, "good"))
+	_, err := a.SyncDocuments()
+	require.NoError(t, err)
+
+	_, err = a.GetDocument("d2")
+	require.NoError(t, err)
+	_, err = a.GetDocument("d1")
+	require.NoError(t, err)
+
+	rec, err := a.GetRecent()
+	require.NoError(t, err)
+	require.Len(t, rec, 2)
+	assert.Equal(t, "d1", rec[0].OutlineID)
+
+	on, err := a.ToggleFavorite("d2")
+	require.NoError(t, err)
+	assert.True(t, on)
+	favs, err := a.GetFavorites()
+	require.NoError(t, err)
+	require.Len(t, favs, 1)
+	assert.Equal(t, "d2", favs[0].OutlineID)
+	is, err := a.IsFavorite("d2")
+	require.NoError(t, err)
+	assert.True(t, is)
+
+	on, err = a.ToggleFavorite("d2")
+	require.NoError(t, err)
+	assert.False(t, on)
+}
+
+func TestServeImageFromCacheOffline(t *testing.T) {
+	a := newTestApp(t)
+	require.NoError(t, a.getDB().SaveBlob(&storage.Blob{ID: "att-1", Mime: "image/png", Data: []byte{1, 2, 3}, Size: 3}))
+
+	req := httptest.NewRequest(http.MethodGet, "/img?id=att-1", nil)
+	rec := httptest.NewRecorder()
+	a.imageMiddleware(http.NotFoundHandler()).ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+	assert.Equal(t, []byte{1, 2, 3}, rec.Body.Bytes())
+
+	req2 := httptest.NewRequest(http.MethodGet, "/img?id=missing", nil)
+	rec2 := httptest.NewRecorder()
+	a.imageMiddleware(http.NotFoundHandler()).ServeHTTP(rec2, req2)
+	assert.Equal(t, http.StatusNotFound, rec2.Code)
 }

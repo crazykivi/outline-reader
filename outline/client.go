@@ -124,16 +124,24 @@ func (c *Client) AllDocuments() ([]Document, error) {
 }
 
 func (c *Client) UpdatedSince(since time.Time) ([]Document, error) {
-	var page []Document
-	if err := c.post("documents.list", map[string]any{
-		"sort": "updatedAt", "direction": "DESC", "limit": 100,
-	}, &page); err != nil {
-		return nil, err
-	}
 	var out []Document
-	for _, d := range page {
-		if d.UpdatedAt.After(since) {
-			out = append(out, d)
+	for offset := 0; offset < 100000; offset += 100 {
+		var page []Document
+		if err := c.post("documents.list", map[string]any{
+			"sort": "updatedAt", "direction": "DESC", "limit": 100, "offset": offset,
+		}, &page); err != nil {
+			return nil, err
+		}
+		stop := false
+		for _, d := range page {
+			if d.UpdatedAt.After(since) {
+				out = append(out, d)
+			} else {
+				stop = true
+			}
+		}
+		if stop || len(page) < 100 {
+			break
 		}
 	}
 	return out, nil

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,10 +20,14 @@ import (
 )
 
 const fullSyncInterval = time.Hour
+const maxBlobSize = 32 << 20
+
+var attachmentRe = regexp.MustCompile(`attachments\.redirect\?id=([0-9a-fA-F-]{36})`)
 
 type App struct {
 	mu       sync.RWMutex
 	opMu     sync.Mutex
+	blobMu   sync.Mutex
 	once     sync.Once
 	initErr  error
 	db       *storage.DB
@@ -31,6 +36,7 @@ type App struct {
 	dataDir  string
 	portable bool
 	version  string
+	ctx      context.Context
 }
 
 func NewApp() *App { return &App{} }
@@ -68,23 +74,48 @@ func (a *App) init() error {
 	} else {
 		a.dataDir = filepath.Dir(a.dbPath)
 	}
-	db, err := storage.NewDB(a.dbPath)
+	if a.portable {
+		log.Printf("[APP] portable: база заблокирована до ввода пароля")
+		return nil
+	}
+	keyHex, err := crypto.LoadOrCreateDPAPIKey(a.dataDir)
 	if err != nil {
-		return fmt.Errorf("db init: %w", err)
+		return fmt.Errorf("ключ базы: %w", err)
+	}
+	return a.openDB(keyHex)
+}
+
+func (a *App) openDB(keyHex string) error {
+	if storage.IsPlaintextDB(a.dbPath) {
+		if err := storage.MigratePlaintext(a.dbPath, keyHex); err != nil {
+			return fmt.Errorf("шифрование существующего кэша: %w", err)
+		}
+	}
+	db, err := storage.NewDB(a.dbPath, keyHex)
+	if err != nil {
+		return err
 	}
 	a.setDB(db)
 	s, err := db.GetSettings()
 	if err == nil && s.APIURL != "" && s.APIKey != "" {
-		decryptedKey := crypto.DecryptIfPossible(s.APIKey)
-		a.setClient(outline.NewClient(s.APIURL, decryptedKey))
+		a.setClient(outline.NewClient(s.APIURL, crypto.DecryptIfPossible(s.APIKey)))
 	}
-	log.Printf("[APP] started, db=%s, portable=%v", a.dbPath, a.portable)
+	log.Printf("[APP] база открыта, portable=%v", a.portable)
 	return nil
 }
 
 func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
 	_ = a.ensure()
 	go a.syncLoop(ctx)
+}
+
+func (a *App) Context() context.Context { return a.ctx }
+
+func (a *App) shutdown() {
+	if db := a.getDB(); db != nil {
+		_ = db.Close()
+	}
 }
 
 func exeDir() string {
@@ -135,6 +166,64 @@ func (a *App) StorageInfo() (StorageInfo, error) {
 		return StorageInfo{}, err
 	}
 	return StorageInfo{Portable: a.portable, DataDir: a.dataDir, DBPath: a.dbPath}, nil
+}
+
+type StorageStatus struct {
+	Portable bool   `json:"portable"`
+	Locked   bool   `json:"locked"`
+	HasDB    bool   `json:"hasDB"`
+	DataDir  string `json:"dataDir"`
+}
+
+func (a *App) StorageStatus() (StorageStatus, error) {
+	if err := a.ensure(); err != nil {
+		return StorageStatus{}, err
+	}
+	_, statErr := os.Stat(a.dbPath)
+	return StorageStatus{
+		Portable: a.portable,
+		Locked:   a.getDB() == nil,
+		HasDB:    statErr == nil,
+		DataDir:  a.dataDir,
+	}, nil
+}
+
+func (a *App) LockApp() error {
+	a.opMu.Lock()
+	defer a.opMu.Unlock()
+	a.setClient(nil)
+	if db := a.getDB(); db != nil {
+		_ = db.Close()
+		a.setDB(nil)
+	}
+	log.Printf("[APP] база заблокирована")
+	return nil
+}
+
+func (a *App) UnlockDB(passphrase string) error {
+	a.opMu.Lock()
+	defer a.opMu.Unlock()
+	if err := a.ensure(); err != nil {
+		return err
+	}
+	if a.getDB() != nil {
+		return nil
+	}
+	if !a.portable {
+		keyHex, err := crypto.LoadOrCreateDPAPIKey(a.dataDir)
+		if err != nil {
+			return err
+		}
+		return a.openDB(keyHex)
+	}
+	if len(passphrase) < 8 {
+		return fmt.Errorf("пароль должен быть не короче 8 символов")
+	}
+	keyHex, err := crypto.DerivePortableKey(a.dataDir, passphrase)
+	if err != nil {
+		return err
+	}
+	return a.openDB(keyHex)
 }
 
 func (a *App) syncLoop(ctx context.Context) {
@@ -213,8 +302,11 @@ func (a *App) SetConnection(apiURL, apiKey string) error {
 	if err := client.CheckAuth(); err != nil {
 		return fmt.Errorf("проверка подключения: %w", err)
 	}
-	encryptedKey := crypto.EncryptIfPossible(apiKey)
-	if err := a.getDB().SaveSettings(&storage.Settings{APIURL: apiURL, APIKey: encryptedKey}); err != nil {
+	storedKey := apiKey
+	if !a.portable {
+		storedKey = crypto.EncryptIfPossible(apiKey)
+	}
+	if err := a.getDB().SaveSettings(&storage.Settings{APIURL: apiURL, APIKey: storedKey}); err != nil {
 		return err
 	}
 	a.setClient(client)
@@ -243,7 +335,7 @@ func (a *App) GetTree() ([]CollectionTree, error) {
 	if err != nil {
 		return nil, err
 	}
-	docs, err := db.GetDocuments()
+	docs, err := db.GetDocumentsMeta()
 	if err != nil {
 		return nil, err
 	}
@@ -294,14 +386,22 @@ func (a *App) GetDocument(outlineID string) (*storage.Document, error) {
 	if err := a.ready(); err != nil {
 		return nil, err
 	}
-	return a.getDB().GetDocumentByOutlineID(outlineID)
+	doc, err := a.getDB().GetDocumentByOutlineID(outlineID)
+	if err == nil {
+		_ = a.getDB().TouchRecent(outlineID)
+	}
+	return doc, err
 }
 
 func (a *App) GetDocumentByURLID(urlID string) (*storage.Document, error) {
 	if err := a.ready(); err != nil {
 		return nil, err
 	}
-	return a.getDB().GetDocumentByURLID(urlID)
+	doc, err := a.getDB().GetDocumentByURLID(urlID)
+	if err == nil {
+		_ = a.getDB().TouchRecent(doc.OutlineID)
+	}
+	return doc, err
 }
 
 func (a *App) SearchDocuments(query string) ([]storage.Document, error) {
@@ -315,28 +415,63 @@ func (a *App) SearchDocuments(query string) ([]storage.Document, error) {
 	return a.getDB().SearchDocuments(query)
 }
 
-func (a *App) SyncDocuments() (int, error) {
+func (a *App) GetRecent() ([]storage.Document, error) {
+	if err := a.ready(); err != nil {
+		return nil, err
+	}
+	return a.getDB().GetRecentDocs()
+}
+
+func (a *App) GetFavorites() ([]storage.Document, error) {
+	if err := a.ready(); err != nil {
+		return nil, err
+	}
+	return a.getDB().GetFavoriteDocs()
+}
+
+func (a *App) ToggleFavorite(oid string) (bool, error) {
+	if err := a.ready(); err != nil {
+		return false, err
+	}
+	return a.getDB().ToggleFavorite(oid)
+}
+
+func (a *App) IsFavorite(oid string) (bool, error) {
+	if err := a.ready(); err != nil {
+		return false, err
+	}
+	return a.getDB().IsFavorite(oid), nil
+}
+
+type SyncResult struct {
+	Total   int `json:"total"`
+	Added   int `json:"added"`
+	Updated int `json:"updated"`
+	Deleted int `json:"deleted"`
+}
+
+func (a *App) SyncDocuments() (SyncResult, error) {
 	a.opMu.Lock()
 	defer a.opMu.Unlock()
 	return a.syncLocked()
 }
 
-func (a *App) syncLocked() (int, error) {
+func (a *App) syncLocked() (SyncResult, error) {
 	if err := a.ready(); err != nil {
-		return 0, err
+		return SyncResult{}, err
 	}
 	client := a.getClient()
 	if client == nil {
-		return 0, fmt.Errorf("подключение не настроено")
+		return SyncResult{}, fmt.Errorf("подключение не настроено")
 	}
 	db := a.getDB()
 	cols, err := client.Collections()
 	if err != nil {
-		return 0, err
+		return SyncResult{}, err
 	}
 	content, err := client.AllDocuments()
 	if err != nil {
-		return 0, err
+		return SyncResult{}, err
 	}
 	byID := make(map[string]outline.Document, len(content))
 	var maxUpdated time.Time
@@ -384,15 +519,36 @@ func (a *App) syncLocked() (int, error) {
 	for i, c := range cols {
 		scols = append(scols, storage.Collection{OutlineID: c.ID, Name: c.Name, Position: i})
 	}
+	old, _ := db.GetDocumentsMeta()
+	oldMap := make(map[string]time.Time, len(old))
+	for _, d := range old {
+		oldMap[d.OutlineID] = d.UpdatedAt
+	}
+	res := SyncResult{Total: len(docs)}
+	newSet := make(map[string]bool, len(docs))
+	for _, d := range docs {
+		newSet[d.OutlineID] = true
+		if prev, ok := oldMap[d.OutlineID]; !ok {
+			res.Added++
+		} else if !d.UpdatedAt.Equal(prev) {
+			res.Updated++
+		}
+	}
+	for id := range oldMap {
+		if !newSet[id] {
+			res.Deleted++
+		}
+	}
 	if err := db.ReplaceAll(scols, docs); err != nil {
-		return 0, err
+		return SyncResult{}, err
 	}
 	if maxUpdated.IsZero() {
 		maxUpdated = time.Now()
 	}
-	_ = db.SetLastSyncTime(maxUpdated)
-	log.Printf("[SYNC] collections=%d documents=%d", len(scols), len(docs))
-	return len(docs), nil
+	_ = db.SetSyncState(maxUpdated, res.Added, res.Updated, res.Deleted)
+	log.Printf("[SYNC] collections=%d documents=%d +%d ~%d -%d", len(scols), len(docs), res.Added, res.Updated, res.Deleted)
+	go a.prefetchBlobs(docs)
+	return res, nil
 }
 
 func (a *App) CheckForUpdates() ([]string, error) {
@@ -427,25 +583,123 @@ func (a *App) CheckForUpdates() ([]string, error) {
 	return titles, nil
 }
 
+type SyncStats struct {
+	LastSync string `json:"lastSync"`
+	Total    int    `json:"total"`
+	Added    int    `json:"added"`
+	Updated  int    `json:"updated"`
+	Deleted  int    `json:"deleted"`
+}
+
+func (a *App) GetSyncStats() (SyncStats, error) {
+	if err := a.ready(); err != nil {
+		return SyncStats{}, err
+	}
+	db := a.getDB()
+	s := db.GetSyncState()
+	out := SyncStats{Total: int(db.CountDocuments()), Added: s.Added, Updated: s.Updated, Deleted: s.Deleted}
+	if !s.LastSync.IsZero() {
+		out.LastSync = s.LastSync.UTC().Format(time.RFC3339)
+	}
+	return out, nil
+}
+
+func (a *App) prefetchBlobs(docs []storage.Document) {
+	if !a.blobMu.TryLock() {
+		return
+	}
+	defer a.blobMu.Unlock()
+	client, db := a.getClient(), a.getDB()
+	if client == nil || db == nil {
+		return
+	}
+	want := map[string]bool{}
+	for _, d := range docs {
+		for _, m := range attachmentRe.FindAllStringSubmatch(d.Text, -1) {
+			want[m[1]] = true
+		}
+	}
+	have, _ := db.BlobIDs()
+	haveSet := map[string]bool{}
+	for _, id := range have {
+		haveSet[id] = true
+	}
+	ids := make([]string, 0, len(want))
+	for id := range want {
+		ids = append(ids, id)
+	}
+	_ = db.DeleteBlobsNotIn(ids)
+	ok, fail := 0, 0
+	for id := range want {
+		if haveSet[id] {
+			continue
+		}
+		resp, err := client.Attachment(id)
+		if err != nil {
+			fail++
+			log.Printf("[BLOB] %s: %v", id, err)
+			continue
+		}
+		data, err := io.ReadAll(io.LimitReader(resp.Body, maxBlobSize+1))
+		ct := resp.Header.Get("Content-Type")
+		_ = resp.Body.Close()
+		if err != nil || int64(len(data)) > maxBlobSize {
+			fail++
+			continue
+		}
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		if err := db.SaveBlob(&storage.Blob{ID: id, Mime: ct, Data: data, Size: int64(len(data)), FetchedAt: time.Now()}); err != nil {
+			fail++
+			continue
+		}
+		ok++
+	}
+	if ok+fail > 0 {
+		log.Printf("[BLOB] закэшировано=%d ошибок=%d всего=%d", ok, fail, len(want))
+	}
+}
+
+type noStoreWriter struct{ http.ResponseWriter }
+
+func (w noStoreWriter) WriteHeader(code int) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w noStoreWriter) Write(b []byte) (int, error) {
+	w.Header().Set("Cache-Control", "no-store")
+	return w.ResponseWriter.Write(b)
+}
+
 func (a *App) imageMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/img" {
 			a.serveImage(w, r)
 			return
 		}
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(noStoreWriter{w}, r)
 	})
 }
 
 func (a *App) serveImage(w http.ResponseWriter, r *http.Request) {
-	client := a.getClient()
-	if client == nil {
-		http.Error(w, "not connected", http.StatusServiceUnavailable)
-		return
-	}
 	id := r.URL.Query().Get("id")
 	if id == "" {
 		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	if db := a.getDB(); db != nil {
+		if b, err := db.GetBlob(id); err == nil {
+			w.Header().Set("Content-Type", b.Mime)
+			w.Header().Set("Cache-Control", "no-store")
+			_, _ = w.Write(b.Data)
+			return
+		}
+	}
+	client := a.getClient()
+	if client == nil {
+		http.Error(w, "offline: attachment not cached", http.StatusNotFound)
 		return
 	}
 	resp, err := client.Attachment(id)
@@ -455,37 +709,48 @@ func (a *App) serveImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBlobSize+1))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
 	ct := resp.Header.Get("Content-Type")
 	if ct == "" {
 		ct = "application/octet-stream"
 	}
+	if int64(len(data)) <= maxBlobSize {
+		if db := a.getDB(); db != nil {
+			_ = db.SaveBlob(&storage.Blob{ID: id, Mime: ct, Data: data, Size: int64(len(data)), FetchedAt: time.Now()})
+		}
+	}
 	w.Header().Set("Content-Type", ct)
-	w.Header().Set("Cache-Control", "private, max-age=86400")
-	_, _ = io.Copy(w, resp.Body)
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(data)
 }
 
 func (a *App) ResetApp() error {
 	a.opMu.Lock()
 	defer a.opMu.Unlock()
-	if err := a.ready(); err != nil {
+	if err := a.ensure(); err != nil {
 		return err
 	}
 	a.setClient(nil)
-	old := a.getDB()
-	a.setDB(nil)
-	if err := old.Close(); err != nil {
-		return fmt.Errorf("close db: %w", err)
+	if old := a.getDB(); old != nil {
+		_ = old.Close()
+		a.setDB(nil)
 	}
-	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
-		if err := os.Remove(a.dbPath + suffix); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove %s: %w", a.dbPath+suffix, err)
-		}
+	for _, suf := range []string{"", "-wal", "-shm", "-journal"} {
+		_ = os.Remove(a.dbPath + suf)
 	}
-	db, err := storage.NewDB(a.dbPath)
+	_ = os.Remove(filepath.Join(a.dataDir, "db.salt"))
+	if a.portable {
+		log.Printf("[APP] storage reset, база снова заблокирована")
+		return nil
+	}
+	_ = os.Remove(filepath.Join(a.dataDir, "db.key"))
+	keyHex, err := crypto.LoadOrCreateDPAPIKey(a.dataDir)
 	if err != nil {
-		return fmt.Errorf("reinit db: %w", err)
+		return err
 	}
-	a.setDB(db)
-	log.Printf("[APP] local storage reset")
-	return nil
+	return a.openDB(keyHex)
 }

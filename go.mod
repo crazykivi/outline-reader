@@ -3,11 +3,13 @@ module outline-reader
 go 1.27.4
 
 require (
+	github.com/ncruces/go-sqlite3 v0.37.0
+	github.com/ncruces/go-sqlite3/gormlite v0.34.0
 	github.com/stretchr/testify v1.11.1
 	github.com/wailsapp/wails/v2 v2.17.1
-	golang.org/x/sys v0.48.0
-	gorm.io/driver/sqlite v1.5.4
-	gorm.io/gorm v1.25.5
+	golang.org/x/crypto v0.59.0
+	golang.org/x/sys v0.50.0
+	gorm.io/gorm v1.31.1
 )
 
 require (
@@ -30,7 +32,8 @@ require (
 	github.com/leaanthony/u v1.1.1 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
-	github.com/mattn/go-sqlite3 v1.14.17 // indirect
+	github.com/ncruces/go-sqlite3-wasm/v6 v6.5.35401 // indirect
+	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
@@ -40,8 +43,8 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
-	golang.org/x/crypto v0.57.0 // indirect
-	golang.org/x/net v0.60.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	lukechampine.com/adiantum v1.1.1 // indirect
 )
