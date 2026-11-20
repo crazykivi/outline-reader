@@ -76,10 +76,14 @@ function waitBindings(timeoutMs = 5000) {
 function bindUI() {
     $("connectBtn").addEventListener("click", connect);
     $("syncBtn").addEventListener("click", syncNow);
-    $("menuSyncFull").addEventListener("click", () => { closeMenu(); syncFullNow(); });
+    $("menuSyncFull").addEventListener("click", () => { closeSideMenu(); syncFullNow(); });
+    $("sideSyncBtn").addEventListener("click", syncNow);
     $("winMin").addEventListener("click", () => window.runtime.WindowMinimise());
     $("winMax").addEventListener("click", () => window.runtime.WindowToggleMaximise());
     $("winClose").addEventListener("click", () => window.runtime.Quit());
+    $("sideAccountBtn").addEventListener("click", () => {
+        $("sideMenu").style.display === "none" ? openSideMenu() : closeSideMenu();
+    });
     let lastHeaderDown = { t: 0, x: 0, y: 0 };
     let headerPress = null;
     document.querySelector(".header").addEventListener("mousedown", (e) => {
@@ -139,6 +143,11 @@ function bindUI() {
         if ($("docMenu").contains(e.target) || $("menuBtn").contains(e.target)) return;
         closeMenu();
     });
+    document.addEventListener("mousedown", (e) => {
+        if ($("sideMenu").style.display === "none") return;
+        if ($("sideMenu").contains(e.target) || $("sideAccountBtn").contains(e.target)) return;
+        closeSideMenu();
+    });
     $("menuFind").addEventListener("click", () => {
         if ($("menuFind").classList.contains("disabled")) return;
         closeMenu();
@@ -146,9 +155,9 @@ function bindUI() {
     });
     $("menuFullWidth").addEventListener("click", () => { applyFullWidth(!fullWidth); });
     $("menuCapture").addEventListener("click", toggleCapture);
-    $("menuLock").addEventListener("click", () => { closeMenu(); lockNow(); });
-    $("menuConnection").addEventListener("click", () => { closeMenu(); openConnModal(); });
-    $("menuReset").addEventListener("click", () => { closeMenu(); openResetModal(); });
+    $("menuLock").addEventListener("click", () => { closeSideMenu(); lockNow(); });
+    $("menuConnection").addEventListener("click", () => { closeSideMenu(); openConnModal(); });
+    $("menuReset").addEventListener("click", () => { closeSideMenu(); openResetModal(); });
 
     // модалка подключения
     $("connClose").addEventListener("click", closeConnModal);
@@ -267,6 +276,7 @@ function bindUI() {
         if (e.key === "Escape") {
             if (palette.open) { closePalette(); return; }
             if ($("docMenu").style.display !== "none") { closeMenu(); return; }
+            if ($("sideMenu").style.display !== "none") { closeSideMenu(); return; }
             if ($("connModal").style.display !== "none") { closeConnModal(); return; }
             if ($("resetModal").style.display !== "none") { closeResetModal(); return; }
             if ($("aboutModal").style.display !== "none") { closeAboutModal(); return; }
@@ -309,9 +319,9 @@ function bindUI() {
         if (currentDocUrl) copySensitive(currentDocUrl, currentDocUrl);
     });
     $("favBtn").addEventListener("click", toggleFav);
-    $("menuAbout").addEventListener("click", () => { closeMenu(); showAbout(); });
-    $("menuZoomIn").addEventListener("click", () => { closeMenu(); zoomIn(); });
-    $("menuZoomOut").addEventListener("click", () => { closeMenu(); zoomOut(); });
+    $("menuAbout").addEventListener("click", () => { closeSideMenu(); showAbout(); });
+    $("menuZoomIn").addEventListener("click", () => { zoomIn(); });
+    $("menuZoomOut").addEventListener("click", () => { zoomOut(); });
     $("zoomIndicator").addEventListener("click", zoomReset);
     $("menuZoomReset").addEventListener("click", () => { closeMenu(); zoomReset(); });
     $("docContent").addEventListener("click", onContentClick);
@@ -450,7 +460,7 @@ function clearMainUI() {
     $("searchInput").value = "";
     $("tocPanel").style.display = "none";
     $("tocContent").innerHTML = "";
-    closeFindBar(); closeMenu(); closePalette();
+    closeFindBar(); closeMenu(); closeSideMenu(); closePalette();
     $("docViewer").style.display = "none";
     $("welcomeScreen").style.display = "none";
     $("updateNotification").style.display = "none";
@@ -522,23 +532,44 @@ async function showAbout() {
 }
 
 function openMenu() {
+    closeSideMenu();
     const noDoc = $("docViewer").style.display === "none";
     $("menuFind").classList.toggle("disabled", noDoc);
-    $("fwSwitch").classList.toggle("on", fullWidth);
-    $("capSwitch").classList.toggle("on", captureProtect);
     const menu = $("docMenu");
     menu.style.display = "block";
+    void menu.offsetWidth;
     const r = $("menuBtn").getBoundingClientRect();
-    const mw = menu.offsetWidth;
     const mh = menu.offsetHeight;
-    const left = Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8));
     let top = r.bottom + 8;
-    if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 8);
-    menu.style.left = left + "px";
+    if (top + mh > window.innerHeight - 8) {
+        top = Math.max(8, r.top - mh - 8);
+    }
     menu.style.top = top + "px";
+    menu.style.left = "auto";
+    menu.style.right = "20px";
 }
 
 function closeMenu() { $("docMenu").style.display = "none"; }
+
+function openSideMenu() {
+    closeMenu();
+    $("fwSwitch").classList.toggle("on", fullWidth);
+    $("capSwitch").classList.toggle("on", captureProtect);
+    $("sideMenu").style.display = "block";
+    $("sideAccountBtn").setAttribute("aria-expanded", "true");
+}
+
+function closeSideMenu() {
+    $("sideMenu").style.display = "none";
+    $("sideAccountBtn").setAttribute("aria-expanded", "false");
+}
+
+window.addEventListener("resize", () => {
+    closeMenu();
+    closeSideMenu();
+    closePalette();
+    updateMaxState();
+});
 
 async function openConnModal() {
     $("connError").textContent = "";
@@ -614,6 +645,7 @@ function initCapture() {
     if (!go().SetCaptureProtection) return;
     go().SetCaptureProtection(on).then((ok) => {
         captureProtect = ok && on;
+        $("capSwitch").classList.toggle("on", captureProtect);
     }).catch(() => { });
 }
 
@@ -1500,8 +1532,9 @@ function fmtDelta(res) {
 async function syncNow() {
     if (syncing) return;
     syncing = true;
-    const btn = $("syncBtn");
+    const btn = $("syncBtn"), side = $("sideSyncBtn");
     btn.classList.add("spin"); btn.disabled = true;
+    side.classList.add("spin"); side.disabled = true;
     try {
         const res = await go().TrySyncDocuments();
         setNet(true);
@@ -1518,6 +1551,7 @@ async function syncNow() {
     } finally {
         syncing = false;
         btn.classList.remove("spin"); btn.disabled = false;
+        side.classList.remove("spin"); side.disabled = false;
     }
 }
 
@@ -1556,8 +1590,9 @@ function showUpdatedDocs(titles) {
 async function syncFullNow() {
     if (syncing) return;
     syncing = true;
-    const btn = $("syncBtn");
+    const btn = $("syncBtn"), side = $("sideSyncBtn");
     btn.classList.add("spin"); btn.disabled = true;
+    side.classList.add("spin"); side.disabled = true;
     try {
         const res = await go().SyncDocumentsFull();
         setNet(true);
@@ -1574,6 +1609,7 @@ async function syncFullNow() {
     } finally {
         syncing = false;
         btn.classList.remove("spin"); btn.disabled = false;
+        side.classList.remove("spin"); side.disabled = false;
     }
 }
 
@@ -1651,6 +1687,7 @@ function initResizer() {
     setSideWidth(parseInt(sidebar.style.width, 10) || 300);
     let dragging = false;
     $("sidebarResizer").addEventListener("mousedown", (e) => {
+        closeSideMenu();
         dragging = true;
         document.body.classList.add("resizing");
         e.preventDefault();
