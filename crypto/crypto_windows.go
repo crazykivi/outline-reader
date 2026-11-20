@@ -21,7 +21,7 @@ func EncryptWithDPAPI(plaintext string) (string, error) {
 	if err := windows.CryptProtectData(&in, nil, nil, 0, nil, 0, &out); err != nil {
 		return "", err
 	}
-	defer windows.LocalFree(windows.Handle(uintptr(unsafe.Pointer(out.Data))))
+	defer func() { _, _ = windows.LocalFree(windows.Handle(uintptr(unsafe.Pointer(out.Data)))) }()
 	result := make([]byte, out.Size)
 	copy(result, unsafe.Slice(out.Data, out.Size))
 	return encryptedPrefix + base64.StdEncoding.EncodeToString(result), nil
@@ -43,7 +43,7 @@ func DecryptWithDPAPI(encoded string) (string, error) {
 	if err := windows.CryptUnprotectData(&in, nil, nil, 0, nil, 0, &out); err != nil {
 		return "", err
 	}
-	defer windows.LocalFree(windows.Handle(uintptr(unsafe.Pointer(out.Data))))
+	defer func() { _, _ = windows.LocalFree(windows.Handle(uintptr(unsafe.Pointer(out.Data)))) }()
 	result := make([]byte, out.Size)
 	copy(result, unsafe.Slice(out.Data, out.Size))
 	return string(result), nil

@@ -59,7 +59,7 @@ func (c *Client) post(ctx context.Context, method string, payload any, out any) 
 	if err != nil {
 		return fmt.Errorf("%s: %w", method, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		var e struct {
 			Error   string `json:"error"`
@@ -189,7 +189,7 @@ func (c *Client) Attachment(ctx context.Context, id string) (*http.Response, err
 		return nil, fmt.Errorf("attachment %s: %w", id, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		return nil, fmt.Errorf("attachment %s: %s", id, resp.Status)
 	}
 	return resp, nil

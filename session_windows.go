@@ -69,10 +69,10 @@ func (a *App) sessionWndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		}
 		return 0
 	case wmClose:
-		procDestroyWindow.Call(hwnd)
+		_, _, _ = procDestroyWindow.Call(hwnd)
 		return 0
 	case wmDestroy:
-		procPostQuitMessage.Call(0)
+		_, _, _ = procPostQuitMessage.Call(0)
 		return 0
 	}
 	r, _, _ := procDefWindowProcW.Call(hwnd, uintptr(msg), wp, lp)
@@ -113,7 +113,7 @@ func (a *App) watchSession(ctx context.Context) {
 	log.Printf("[SESSION] session lock watcher started")
 	go func() {
 		<-ctx.Done()
-		procPostMessageW.Call(hwnd, wmClose, 0, 0)
+		_, _, _ = procPostMessageW.Call(hwnd, wmClose, 0, 0)
 	}()
 	var m sessionMsg
 	for {
@@ -121,8 +121,8 @@ func (a *App) watchSession(ctx context.Context) {
 		if int32(r) <= 0 {
 			break
 		}
-		procTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
-		procDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
+		_, _, _ = procTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
+		_, _, _ = procDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
 	}
-	procWTSUnRegisterSessionNotification.Call(hwnd)
+	_, _, _ = procWTSUnRegisterSessionNotification.Call(hwnd)
 }

@@ -155,7 +155,7 @@ func IsPlaintextDB(path string) bool {
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	hdr := make([]byte, 16)
 	if _, err := io.ReadFull(f, hdr); err != nil {
 		return false
@@ -203,14 +203,14 @@ func MigratePlaintext(dbPath, keyHex string) error {
 	}
 	if len(cols) > 0 {
 		if err := nd.db.CreateInBatches(&cols, 200).Error; err != nil {
-			nd.Close()
+			_ = nd.Close()
 			rollback()
 			return err
 		}
 	}
 	if len(docs) > 0 {
 		if err := nd.db.CreateInBatches(&docs, 200).Error; err != nil {
-			nd.Close()
+			_ = nd.Close()
 			rollback()
 			return err
 		}

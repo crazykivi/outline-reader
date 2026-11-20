@@ -1017,7 +1017,7 @@ func (a *App) serveImage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBlobSize+1))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)

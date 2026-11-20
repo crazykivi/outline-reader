@@ -457,7 +457,7 @@ func TestMigratePlaintext(t *testing.T) {
 
 	db2, err := storage.NewDB(path, key)
 	require.NoError(t, err)
-	defer db2.Close()
+	defer func() { _ = db2.Close() }()
 	s, err := db2.GetSettings()
 	require.NoError(t, err)
 	assert.Equal(t, "https://x", s.APIURL)
