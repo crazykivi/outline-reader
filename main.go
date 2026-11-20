@@ -63,6 +63,7 @@ func main() {
 
 	err = wails.Run(&options.App{
 		Title:            "Outline Reader",
+		Frameless:        true,
 		Width:            1200,
 		Height:           800,
 		MinWidth:         900,

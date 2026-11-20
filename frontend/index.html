@@ -40,25 +40,23 @@
 
     <div id="mainScreen" class="main-screen" style="display:none">
         <header class="header">
-            <button id="backBtn" class="btn-icon" title="Назад (Alt+←)" disabled><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
-            <button id="forwardBtn" class="btn-icon" title="Вперёд (Alt+→)" disabled><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
-            <button id="tocBtn" class="btn-icon" title="Оглавление" disabled><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M17,16 C17.5522847,16 18,16.4477153 18,17 C18,17.5522847 18.5522847,18 18,18 L7,18 C6.44771525,18 6,17.5522847 6,17 C6,16.4477153 6.44771525,16 7,16 L17,16 Z M17,11 C17.5522847,11 18,11.4477153 18,12 C18,12.5522847 18.5522847,13 18,13 L10,13 C9.44771525,13 9,12.5522847 9,12 C9,11.4477153 9.44771525,11 10,11 L17,11 Z M17,6 C17.5522847,6 18,6.44771525 18,7 C18,7.55228475 18,8 17,8 L7,8 C6.44771525,8 6,7.55228475 6,7 C6,6.44771525 6.44771525,6 7,6 L17,6 Z"/></svg></button>
+            <div class="header-left">
+                <button id="backBtn" class="btn-icon" title="Назад (Alt+←)" disabled><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+                <button id="forwardBtn" class="btn-icon" title="Вперёд (Alt+→)" disabled><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
+            </div>
             <div class="header-center">
                 <div class="search-box">
-                    <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                        <circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path>
-                    </svg>
-                    <input type="text" id="searchInput" placeholder="Поиск документов (Ctrl+K)" autocomplete="off" spellcheck="false">
-                </div>
+                    <button id="tocBtn" class="btn-icon" title="Оглавление" disabled><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M17,16 C17.5522847,16 18,16.4477153 18,17 C18,17.5522847 18.5522847,18 18,18 L7,18 C6.44771525,18 6,17.5522847 6,17 C6,16.4477153 6.44771525,16 7,16 L17,16 Z M17,11 C17.5522847,11 18,11.4477153 18,12 C18,12.5522847 18.5522847,13 18,13 L10,13 C9.44771525,13 9,12.5522847 9,12 C9,11.4477153 9.44771525,11 10,11 L17,11 Z M17,6 C17.5522847,6 18,6.44771525 18,7 C18,7.55228475 18,8 17,8 L7,8 C6.44771525,8 6,7.55228475 6,7 C6,6.44771525 6,7 6 L17,6 Z"/></svg></button>
+                    <input type="text" id="searchInput" placeholder="Поиск документов (Ctrl+K)" autocomplete="off" spellcheck="false">                </div>
             </div>
             <div class="header-right">
                 <span id="zoomIndicator" class="zoom-indicator" style="display:none"></span>
                 <button id="themeBtn" class="btn-icon" title="Переключить тему"></button>
-                <button id="menuBtn" class="btn-icon" title="Меню">
-                    <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                        <circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle>
-                    </svg>
-                </button>
+            </div>
+            <div class="win-controls">
+                <button id="winMin" class="win-btn" title="Свернуть"><svg width="11" height="11" viewBox="0 0 12 12"><path d="M1 6h10" stroke="currentColor" stroke-width="1.2"/></svg></button>
+                <button id="winMax" class="win-btn" title="Развернуть"><svg class="ic-max" width="11" height="11" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.2"/></svg><svg class="ic-restore" width="11" height="11" viewBox="0 0 12 12"><rect x="1.5" y="3.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 3.5V1.5h7v7h-2" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></button>
+                <button id="winClose" class="win-btn win-close" title="Закрыть"><svg width="11" height="11" viewBox="0 0 12 12"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9" stroke="currentColor" stroke-width="1.2"/></svg></button>
             </div>
         </header>
 
@@ -170,6 +168,11 @@
                 </div>
 
                 <main class="viewer">
+                    <button id="menuBtn" class="btn-icon veiwer-div" title="Меню">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                            <circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle>
+                        </svg>
+                    </button>
                     <div id="welcomeScreen" class="welcome">
                         <div class="welcome-icon">
                             <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">

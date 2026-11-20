@@ -51,6 +51,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     applyFontScale(fontScale);
     bindUI();
     initResizer();
+    updateMaxState();
     try {
         await waitBindings();
         bindBackendEvents();
@@ -76,6 +77,44 @@ function bindUI() {
     $("connectBtn").addEventListener("click", connect);
     $("syncBtn").addEventListener("click", syncNow);
     $("menuSyncFull").addEventListener("click", () => { closeMenu(); syncFullNow(); });
+    $("winMin").addEventListener("click", () => window.runtime.WindowMinimise());
+    $("winMax").addEventListener("click", () => window.runtime.WindowToggleMaximise());
+    $("winClose").addEventListener("click", () => window.runtime.Quit());
+    let lastHeaderDown = { t: 0, x: 0, y: 0 };
+    let headerPress = null;
+    document.querySelector(".header").addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        if (window.wails && window.wails.flags && window.wails.flags.resizeEdge) return;
+        if (e.target.closest("button, input, a, .search-box, .win-controls, .zoom-indicator")) {
+            lastHeaderDown = { t: 0, x: 0, y: 0 };
+            headerPress = null;
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        closeMenu();
+        const now = Date.now();
+        const near = Math.abs(e.screenX - lastHeaderDown.x) <= 4 && Math.abs(e.screenY - lastHeaderDown.y) <= 4;
+        if (now - lastHeaderDown.t < 500 && near) {
+            lastHeaderDown = { t: 0, x: 0, y: 0 };
+            headerPress = null;
+            window.runtime.WindowToggleMaximise();
+            return;
+        }
+        lastHeaderDown = { t: now, x: e.screenX, y: e.screenY };
+        headerPress = { x: e.screenX, y: e.screenY };
+    });
+    document.addEventListener("mousemove", (e) => {
+        if (!headerPress) return;
+        if (e.buttons !== 1) { headerPress = null; return; }
+        if (Math.abs(e.screenX - headerPress.x) > 4 || Math.abs(e.screenY - headerPress.y) > 4) {
+            headerPress = null;
+            lastHeaderDown = { t: 0, x: 0, y: 0 };
+            window.WailsInvoke("drag");
+        }
+    });
+    document.addEventListener("mouseup", () => { headerPress = null; });
+    window.addEventListener("resize", updateMaxState);
     $("themeBtn").addEventListener("click", () => {
         applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
     });
@@ -434,6 +473,13 @@ function pingActivity() {
     go().NotifyActivity().catch(() => { });
 }
 
+function updateMaxState() {
+    window.runtime.WindowIsMaximised().then((m) => {
+        document.body.classList.toggle("maximised", !!m);
+        $("winMax").title = m ? "Свернуть в окно" : "Развернуть";
+    }).catch(() => { });
+}
+
 /* ---------- Экраны / подключение ---------- */
 
 function enterMain() {
@@ -480,7 +526,16 @@ function openMenu() {
     $("menuFind").classList.toggle("disabled", noDoc);
     $("fwSwitch").classList.toggle("on", fullWidth);
     $("capSwitch").classList.toggle("on", captureProtect);
-    $("docMenu").style.display = "block";
+    const menu = $("docMenu");
+    menu.style.display = "block";
+    const r = $("menuBtn").getBoundingClientRect();
+    const mw = menu.offsetWidth;
+    const mh = menu.offsetHeight;
+    const left = Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8));
+    let top = r.bottom + 8;
+    if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 8);
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
 }
 
 function closeMenu() { $("docMenu").style.display = "none"; }
@@ -1586,10 +1641,14 @@ function updateZoomIndicator() {
     }
 }
 
+function setSideWidth(w) {
+    document.documentElement.style.setProperty("--side-w", w + "px");
+}
 function initResizer() {
     const sidebar = document.querySelector(".sidebar");
     const saved = parseInt(localStorage.getItem("or.sideWidth") || "300", 10);
     if (saved >= 220 && saved <= 480) sidebar.style.width = saved + "px";
+    setSideWidth(parseInt(sidebar.style.width, 10) || 300);
     let dragging = false;
     $("sidebarResizer").addEventListener("mousedown", (e) => {
         dragging = true;
@@ -1598,12 +1657,16 @@ function initResizer() {
     });
     document.addEventListener("mousemove", (e) => {
         if (!dragging) return;
-        sidebar.style.width = Math.max(220, Math.min(480, e.clientX)) + "px";
+        const w = Math.max(220, Math.min(480, e.clientX));
+        sidebar.style.width = w + "px";
+        setSideWidth(w);
     });
     document.addEventListener("mouseup", () => {
         if (!dragging) return;
         dragging = false;
         document.body.classList.remove("resizing");
-        localStorage.setItem("or.sideWidth", parseInt(sidebar.style.width, 10) || 300);
+        const w = parseInt(sidebar.style.width, 10) || 300;
+        localStorage.setItem("or.sideWidth", w);
+        setSideWidth(w);
     });
 }
