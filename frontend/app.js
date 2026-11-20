@@ -1070,7 +1070,6 @@ function renderDocLink(doc, base) {
     copy.style.display = "grid";
     link.href = currentDocUrl;
     link.title = "Открыть в Outline: " + currentDocUrl;
-    $("docLinkText").textContent = currentDocUrl.replace(/^https?:\/\//, "");
 }
 
 function renderCrumbs(oid) {
@@ -1642,8 +1641,14 @@ function showToast(title, msg, isErr) {
 function applyTheme(t) {
     document.documentElement.dataset.theme = t;
     localStorage.setItem("or.theme", t);
-    $("themeBtn").innerHTML = t === "dark" ? ICON_SUN : ICON_MOON;
-    $("themeBtn").title = t === "dark" ? "Светлая тема" : "Тёмная тема";
+    const btn = $("themeBtn");
+    const icon = btn.querySelector(".menu-icon");
+    if (icon) {
+        icon.innerHTML = t === "dark" ? ICON_SUN : ICON_MOON;
+    } else {
+        btn.innerHTML = t === "dark" ? ICON_SUN : ICON_MOON;
+    }
+    btn.title = t === "dark" ? "Светлая тема" : "Тёмная тема";
 }
 
 function applyFullWidth(v) {
