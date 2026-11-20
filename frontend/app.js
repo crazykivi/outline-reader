@@ -84,6 +84,9 @@ function bindUI() {
     $("sideAccountBtn").addEventListener("click", () => {
         $("sideMenu").style.display === "none" ? openSideMenu() : closeSideMenu();
     });
+    [$("tocBtn"), $("favBtn")].forEach((btn) => {
+        btn.addEventListener("mousedown", (e) => e.preventDefault());
+    });
     let lastHeaderDown = { t: 0, x: 0, y: 0 };
     let headerPress = null;
     document.querySelector(".header").addEventListener("mousedown", (e) => {
@@ -1669,10 +1672,10 @@ function updateZoomIndicator() {
     if (!el) return;
     const pct = Math.round(fontScale * 100);
     if (pct === 100) {
-        el.style.display = "none";
+        el.style.opacity = "0";
     } else {
         el.textContent = pct + "%";
-        el.style.display = "inline-flex";
+        el.style.opacity = "1";
     }
 }
 
