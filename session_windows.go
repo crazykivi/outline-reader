@@ -107,7 +107,7 @@ func (a *App) watchSession(ctx context.Context) {
 	}
 	if r, _, err := procWTSRegisterSessionNotification.Call(hwnd, 0); r == 0 {
 		log.Printf("[SESSION] WTSRegisterSessionNotification: %v", err)
-		procDestroyWindow.Call(hwnd)
+		_, _, _ = procDestroyWindow.Call(hwnd)
 		return
 	}
 	log.Printf("[SESSION] session lock watcher started")
