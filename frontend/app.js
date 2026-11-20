@@ -315,9 +315,6 @@ function bindUI() {
         e.preventDefault();
         if (currentDocUrl) window.runtime.BrowserOpenURL(currentDocUrl);
     });
-    $("docLinkCopy").addEventListener("click", () => {
-        if (currentDocUrl) copySensitive(currentDocUrl, currentDocUrl);
-    });
     $("favBtn").addEventListener("click", toggleFav);
     $("menuAbout").addEventListener("click", () => { closeSideMenu(); showAbout(); });
     $("menuZoomIn").addEventListener("click", () => { zoomIn(); });
@@ -454,7 +451,6 @@ function clearMainUI() {
     $("docContent").innerHTML = ""; $("docTitle").textContent = "";
     $("docDate").textContent = ""; $("docCrumbs").innerHTML = "";
     $("docLink").style.display = "none";
-    $("docLinkCopy").style.display = "none";
     $("favBtn").style.display = "none";
     $("docTree").innerHTML = ""; collections = []; index = {}; favorites = [];
     $("searchInput").value = "";
@@ -1060,14 +1056,12 @@ async function refreshCurrentDoc() {
 function renderDocLink(doc, base) {
     const path = doc.Url || (doc.UrlID ? "/doc/" + doc.UrlID : "");
     currentDocUrl = base && path ? base.replace(/\/+$/, "") + path : "";
-    const link = $("docLink"), copy = $("docLinkCopy");
+    const link = $("docLink");
     if (!currentDocUrl) {
         link.style.display = "none";
-        copy.style.display = "none";
         return;
     }
     link.style.display = "inline-flex";
-    copy.style.display = "grid";
     link.href = currentDocUrl;
     link.title = "Открыть в Outline: " + currentDocUrl;
 }
