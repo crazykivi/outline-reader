@@ -64,6 +64,9 @@ const (
 	lrShared      = 0x00008000
 	idiApplication = 32512
 
+	// Wails v2 embeds the application icon as RT_GROUP_ICON resource ID 3.
+	appIconResourceID = 3
+
 	mfString     = 0x00000000
 	mfSeparator  = 0x00000800
 	tpmRightButton = 0x0002
@@ -131,13 +134,13 @@ var (
 func addTrayIcon(hwnd uintptr, instance uintptr) bool {
 	// Load the application's embedded icon resource. Loading IDI_APPLICATION
 	// here would silently show the generic Windows icon instead of our branding.
-	icon, _, err := procLoadIconW.Call(instance, 1)
+	icon, _, err := procLoadIconW.Call(instance, appIconResourceID)
 	if icon == 0 {
-		log.Printf("[TRAY] LoadIcon(app resource ID 1): %v", err)
-		icon, _, err = procLoadImageW.Call(instance, 1, imageIcon, 0, 0, lrDefaultSize|lrShared)
+		log.Printf("[TRAY] LoadIcon(Wails app icon resource ID 3): %v", err)
+		icon, _, err = procLoadImageW.Call(instance, appIconResourceID, imageIcon, 0, 0, lrDefaultSize|lrShared)
 	}
 	if icon == 0 {
-		log.Printf("[TRAY] application icon resource is unavailable; falling back to the standard Windows application icon: %v", err)
+		log.Printf("[TRAY] Wails app icon resource ID 3 is unavailable; falling back to the standard Windows application icon: %v", err)
 		icon, _, err = procLoadIconW.Call(0, idiApplication)
 	}
 	if icon == 0 {

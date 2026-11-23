@@ -76,6 +76,9 @@ jobs:
           $log              | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
+      - name: Generate Windows application icon
+        run: go run ./tools/icon-gen -input build/appicon.png -output build/windows/icon.ico
+
       - name: Wails build
         env:
           CGO_ENABLED: 0
