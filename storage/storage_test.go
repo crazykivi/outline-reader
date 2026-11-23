@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -137,4 +138,115 @@ func TestPrefsRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "dark", p["theme"])
 	assert.Equal(t, "320", p["sideWidth"])
+}
+
+func TestMigratePlaintextPreservesAllStoredData(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.db")
+	db, err := NewDB(path, "")
+	require.NoError(t, err)
+	now := time.Now().UTC().Truncate(time.Second)
+	require.NoError(t, db.ApplySync([]Collection{{OutlineID: "collection-1", Name: "Wiki", Position: 1}}, []Document{
+		{OutlineID: "doc-1", CollectionID: "collection-1", Title: "Document", Text: "Important text", Position: 1, UpdatedAt: now},
+	}, nil, nil))
+	require.NoError(t, db.SaveSettings(&Settings{APIURL: "https://example.test", APIKey: "legacy-key"}))
+	require.NoError(t, db.SetSyncState(now, 2, 3, 4))
+	require.NoError(t, db.SetLastFullSync(now))
+	require.NoError(t, db.SaveBlob(&Blob{ID: "attachment-1", Mime: "image/png", Data: []byte{1, 2, 3}, Size: 3}))
+	require.NoError(t, db.SetPrefs(map[string]string{"theme": "dark"}))
+	require.NoError(t, db.db.Create(&Recent{OutlineID: "doc-1", OpenedAt: now}).Error)
+	require.NoError(t, db.db.Create(&Favorite{OutlineID: "doc-1", AddedAt: now}).Error)
+	require.NoError(t, db.Close())
+
+	key := strings.Repeat("ab", 32)
+	require.NoError(t, MigratePlaintext(path, key))
+	assert.False(t, IsPlaintextDB(path))
+	_, err = os.Stat(path + ".plain")
+	assert.True(t, os.IsNotExist(err), "plaintext backup should be removed after successful migration")
+
+	encrypted, err := NewDB(path, key)
+	require.NoError(t, err)
+	defer func() { _ = encrypted.Close() }()
+
+	docs, err := encrypted.GetDocumentsMeta()
+	require.NoError(t, err)
+	require.Len(t, docs, 1)
+	assert.Equal(t, "doc-1", docs[0].OutlineID)
+	doc, err := encrypted.GetDocumentByOutlineID("doc-1")
+	require.NoError(t, err)
+	assert.Equal(t, "Important text", doc.Text)
+
+	cols, err := encrypted.GetCollections()
+	require.NoError(t, err)
+	require.Len(t, cols, 1)
+	assert.Equal(t, "Wiki", cols[0].Name)
+
+	settings, err := encrypted.GetSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.test", settings.APIURL)
+	assert.Equal(t, "legacy-key", settings.APIKey)
+	assert.Equal(t, 2, encrypted.GetSyncState().Added)
+	assert.WithinDuration(t, now, encrypted.GetLastFullSync(), time.Second)
+
+	blob, err := encrypted.GetBlob("attachment-1")
+	require.NoError(t, err)
+	assert.Equal(t, []byte{1, 2, 3}, blob.Data)
+	prefs, err := encrypted.GetPrefs()
+	require.NoError(t, err)
+	assert.Equal(t, "dark", prefs["theme"])
+	recent, err := encrypted.GetRecentDocs()
+	require.NoError(t, err)
+	require.Len(t, recent, 1)
+	assert.Equal(t, "doc-1", recent[0].OutlineID)
+	favorites, err := encrypted.GetFavoriteDocs()
+	require.NoError(t, err)
+	require.Len(t, favorites, 1)
+	assert.Equal(t, "doc-1", favorites[0].OutlineID)
+}
+
+func TestMigratePlaintextRestoresOriginalOnEncryptionFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.db")
+	db, err := NewDB(path, "")
+	require.NoError(t, err)
+	require.NoError(t, db.SaveSettings(&Settings{APIURL: "https://preserve.example", APIKey: "keep-me"}))
+	require.NoError(t, db.Close())
+	require.True(t, IsPlaintextDB(path))
+
+	err = MigratePlaintext(path, "not-a-valid-hex-key")
+	require.Error(t, err)
+	require.True(t, IsPlaintextDB(path), "original plaintext database must be restored")
+	_, statErr := os.Stat(path + ".plain")
+	assert.True(t, os.IsNotExist(statErr), "backup should be restored to its original path")
+
+	restored, err := NewDB(path, "")
+	require.NoError(t, err)
+	defer func() { _ = restored.Close() }()
+	settings, err := restored.GetSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "https://preserve.example", settings.APIURL)
+	assert.Equal(t, "keep-me", settings.APIKey)
+}
+
+func TestMigratePlaintextSupportsOlderCacheSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.db")
+	db, err := NewDB(path, "")
+	require.NoError(t, err)
+	require.NoError(t, db.ApplySync([]Collection{{OutlineID: "collection-1", Name: "Wiki"}}, []Document{
+		{OutlineID: "doc-1", CollectionID: "collection-1", Title: "Legacy document", Text: "legacy text"},
+	}, nil, nil))
+	require.NoError(t, db.SaveSettings(&Settings{APIURL: "https://legacy.example"}))
+	require.NoError(t, db.db.Migrator().DropTable(&Blob{}, &Recent{}, &Favorite{}, &Pref{}))
+	require.NoError(t, db.Close())
+
+	key := strings.Repeat("cd", 32)
+	require.NoError(t, MigratePlaintext(path, key))
+	encrypted, err := NewDB(path, key)
+	require.NoError(t, err)
+	defer func() { _ = encrypted.Close() }()
+
+	doc, err := encrypted.GetDocumentByOutlineID("doc-1")
+	require.NoError(t, err)
+	assert.Equal(t, "legacy text", doc.Text)
+	settings, err := encrypted.GetSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "https://legacy.example", settings.APIURL)
 }

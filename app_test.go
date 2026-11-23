@@ -880,3 +880,28 @@ func TestLockUnlockWhileSyncInFlight(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Root", doc.Title)
 }
+
+func TestPlaintextBackupIsRemovedOnlyAfterEncryptedDBOpens(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.db")
+	first := NewApp()
+	first.dbPath = path
+	require.NoError(t, first.UnlockDB("correct-master-pass"))
+	require.NoError(t, first.getDB().Close())
+
+	backup := path + ".plain"
+	require.NoError(t, os.WriteFile(backup, []byte("preserved backup"), 0o600))
+
+	second := NewApp()
+	second.dbPath = path
+	require.Error(t, second.UnlockDB("wrong-master-pass"))
+	contents, err := os.ReadFile(backup)
+	require.NoError(t, err)
+	assert.Equal(t, "preserved backup", string(contents))
+
+	require.NoError(t, second.UnlockDB("correct-master-pass"))
+	_, err = os.Stat(backup)
+	assert.True(t, os.IsNotExist(err), "backup should be removed only after the encrypted database opens")
+	if db := second.getDB(); db != nil {
+		require.NoError(t, db.Close())
+	}
+}
