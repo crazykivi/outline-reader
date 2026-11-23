@@ -206,30 +206,42 @@ func MigratePlaintext(dbPath, keyHex string) error {
 	if err := old.Find(&cols).Error; err != nil {
 		return closeOld(fmt.Errorf("чтение коллекций исходной базы: %w", err))
 	}
-	if err := old.Find(&blobs).Error; err != nil {
-		return closeOld(fmt.Errorf("чтение вложений исходной базы: %w", err))
+	if old.Migrator().HasTable(&Blob{}) {
+		if err := old.Find(&blobs).Error; err != nil {
+			return closeOld(fmt.Errorf("чтение вложений исходной базы: %w", err))
+		}
 	}
-	if err := old.Find(&recents).Error; err != nil {
-		return closeOld(fmt.Errorf("чтение истории исходной базы: %w", err))
+	if old.Migrator().HasTable(&Recent{}) {
+		if err := old.Find(&recents).Error; err != nil {
+			return closeOld(fmt.Errorf("чтение истории исходной базы: %w", err))
+		}
 	}
-	if err := old.Find(&favorites).Error; err != nil {
-		return closeOld(fmt.Errorf("чтение избранного исходной базы: %w", err))
+	if old.Migrator().HasTable(&Favorite{}) {
+		if err := old.Find(&favorites).Error; err != nil {
+			return closeOld(fmt.Errorf("чтение избранного исходной базы: %w", err))
+		}
 	}
-	if err := old.Find(&prefs).Error; err != nil {
-		return closeOld(fmt.Errorf("чтение настроек интерфейса исходной базы: %w", err))
+	if old.Migrator().HasTable(&Pref{}) {
+		if err := old.Find(&prefs).Error; err != nil {
+			return closeOld(fmt.Errorf("чтение настроек интерфейса исходной базы: %w", err))
+		}
 	}
 
 	hasSettings := false
-	if err := old.First(&s, 1).Error; err == nil {
-		hasSettings = true
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return closeOld(fmt.Errorf("чтение настроек исходной базы: %w", err))
+	if old.Migrator().HasTable(&Settings{}) {
+		if err := old.First(&s, 1).Error; err == nil {
+			hasSettings = true
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return closeOld(fmt.Errorf("чтение настроек исходной базы: %w", err))
+		}
 	}
 	hasSync := false
-	if err := old.First(&ss, 1).Error; err == nil {
-		hasSync = true
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return closeOld(fmt.Errorf("чтение состояния синхронизации исходной базы: %w", err))
+	if old.Migrator().HasTable(&SyncState{}) {
+		if err := old.First(&ss, 1).Error; err == nil {
+			hasSync = true
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return closeOld(fmt.Errorf("чтение состояния синхронизации исходной базы: %w", err))
+		}
 	}
 	if err := oldSQL.Close(); err != nil {
 		return fmt.Errorf("закрытие исходной базы: %w", err)
