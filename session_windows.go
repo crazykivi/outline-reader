@@ -137,7 +137,11 @@ func addTrayIcon(hwnd uintptr, instance uintptr) bool {
 		icon, _, err = procLoadImageW.Call(instance, 1, imageIcon, 0, 0, lrDefaultSize|lrShared)
 	}
 	if icon == 0 {
-		log.Printf("[TRAY] application icon resource is unavailable: %v", err)
+		log.Printf("[TRAY] application icon resource is unavailable; falling back to the standard Windows application icon: %v", err)
+		icon, _, err = procLoadIconW.Call(0, idiApplication)
+	}
+	if icon == 0 {
+		log.Printf("[TRAY] failed to load both the application and fallback icons: %v", err)
 		return false
 	}
 
