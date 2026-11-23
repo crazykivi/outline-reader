@@ -323,7 +323,8 @@ func (a *App) watchSession(ctx context.Context) {
 	}
 
 	taskbarCreated, _ := windows.UTF16PtrFromString("TaskbarCreated")
-	trayTaskbarMsg, _, _ = procRegisterWindowMessageW.Call(uintptr(unsafe.Pointer(taskbarCreated)))
+	taskbarMessage, _, _ := procRegisterWindowMessageW.Call(uintptr(unsafe.Pointer(taskbarCreated)))
+	trayTaskbarMsg = uint32(taskbarMessage)
 	if !addTrayIcon(hwnd, hInst) {
 		log.Printf("[TRAY] tray icon could not be registered; the window can still be restored by launching the EXE again")
 	}
