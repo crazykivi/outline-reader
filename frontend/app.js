@@ -147,7 +147,7 @@ function bindUI() {
     $("sideSyncBtn").addEventListener("click", syncNow);
     $("winMin").addEventListener("click", () => window.runtime.WindowMinimise());
     $("winMax").addEventListener("click", () => window.runtime.WindowToggleMaximise());
-    $("winClose").addEventListener("click", () => window.runtime.Quit());
+    $("winClose").addEventListener("click", () => window.runtime.WindowHide());
     $("sideAccountBtn").addEventListener("click", () => {
         uiIsOpen($("sideMenu")) ? closeSideMenu() : openSideMenu();
     });
