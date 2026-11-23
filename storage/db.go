@@ -194,6 +194,10 @@ func MigratePlaintext(dbPath, keyHex string) error {
 
 	var docs []Document
 	var cols []Collection
+	var blobs []Blob
+	var recents []Recent
+	var favorites []Favorite
+	var prefs []Pref
 	var s Settings
 	var ss SyncState
 	if err := old.Find(&docs).Error; err != nil {
@@ -201,6 +205,18 @@ func MigratePlaintext(dbPath, keyHex string) error {
 	}
 	if err := old.Find(&cols).Error; err != nil {
 		return closeOld(fmt.Errorf("чтение коллекций исходной базы: %w", err))
+	}
+	if err := old.Find(&blobs).Error; err != nil {
+		return closeOld(fmt.Errorf("чтение вложений исходной базы: %w", err))
+	}
+	if err := old.Find(&recents).Error; err != nil {
+		return closeOld(fmt.Errorf("чтение истории исходной базы: %w", err))
+	}
+	if err := old.Find(&favorites).Error; err != nil {
+		return closeOld(fmt.Errorf("чтение избранного исходной базы: %w", err))
+	}
+	if err := old.Find(&prefs).Error; err != nil {
+		return closeOld(fmt.Errorf("чтение настроек интерфейса исходной базы: %w", err))
 	}
 
 	hasSettings := false
@@ -266,6 +282,23 @@ func MigratePlaintext(dbPath, keyHex string) error {
 	if hasSync {
 		if err := nd.db.Save(&ss).Error; err != nil {
 			return rollback(fmt.Errorf("перенос состояния синхронизации: %w", err), nd)
+		}
+	}
+	for _, batch := range []struct {
+		name string
+		rows any
+		size int
+	}{
+		{name: "вложений", rows: &blobs, size: len(blobs)},
+		{name: "истории", rows: &recents, size: len(recents)},
+		{name: "избранного", rows: &favorites, size: len(favorites)},
+		{name: "настроек интерфейса", rows: &prefs, size: len(prefs)},
+	} {
+		if batch.size == 0 {
+			continue
+		}
+		if err := nd.db.CreateInBatches(batch.rows, 200).Error; err != nil {
+			return rollback(fmt.Errorf("перенос %s: %w", batch.name, err), nd)
 		}
 	}
 	if err := nd.Close(); err != nil {
