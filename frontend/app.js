@@ -16,7 +16,7 @@ let skipHistoryPush = false;
 let currentOID = null;
 let currentDocUpdated = "";
 let searchTimer = null;
-let toastTimer = null;
+let toastTimer = null, noticeTimer = null;
 let fullWidth = localStorage.getItem("or.fullWidth") === "1";
 let tocOpen = localStorage.getItem("or.tocOpen") === "1";
 let fontScale = parseFloat(localStorage.getItem("or.fontScale") || "1");
@@ -33,6 +33,7 @@ let cachedApiURL = "";
 let connHasKey = false;
 let lastActivitySent = 0;
 let settingsOpen = false;
+let captureBusy = false;
 
 const palette = { open: false, items: [], sel: 0, timer: null };
 
@@ -82,7 +83,7 @@ function bindUI() {
     $("winMax").addEventListener("click", () => window.runtime.WindowToggleMaximise());
     $("winClose").addEventListener("click", () => window.runtime.Quit());
     $("sideAccountBtn").addEventListener("click", () => {
-        $("sideMenu").style.display === "none" ? openSideMenu() : closeSideMenu();
+        uiIsOpen($("sideMenu")) ? closeSideMenu() : openSideMenu();
     });
     [$("tocBtn"), $("favBtn")].forEach((btn) => {
         btn.addEventListener("mousedown", (e) => e.preventDefault());
@@ -134,7 +135,7 @@ function bindUI() {
         saveExpanded();
         renderTree();
     });
-    $("closeNotification").addEventListener("click", () => { $("updateNotification").style.display = "none"; });
+    $("closeNotification").addEventListener("click", hideNotice);
     $("lockBtn").addEventListener("click", unlockDB);
     $("lockReset").addEventListener("click", resetFromLock);
     [$("lockPass"), $("lockPass2")].forEach((el) => {
@@ -143,15 +144,15 @@ function bindUI() {
 
     // меню "три точки"
     $("menuBtn").addEventListener("click", () => {
-        $("docMenu").style.display === "none" ? openMenu() : closeMenu();
+        uiIsOpen($("docMenu")) ? closeMenu() : openMenu();
     });
     document.addEventListener("mousedown", (e) => {
-        if ($("docMenu").style.display === "none") return;
+        if (!uiIsOpen($("docMenu"))) return;
         if ($("docMenu").contains(e.target) || $("menuBtn").contains(e.target)) return;
         closeMenu();
     });
     document.addEventListener("mousedown", (e) => {
-        if ($("sideMenu").style.display === "none") return;
+        if (!uiIsOpen($("sideMenu"))) return;
         if ($("sideMenu").contains(e.target) || $("sideAccountBtn").contains(e.target)) return;
         closeSideMenu();
     });
@@ -189,8 +190,11 @@ function bindUI() {
     });
     $("aboutModal").addEventListener("mousedown", (e) => { if (e.target === $("aboutModal")) closeAboutModal(); });
 
-    $("settingsBtn").addEventListener("click", openSettings); // добавь эту кнопку в sideMenu
+    $("settingsBtn").addEventListener("click", openSettings);
     $("settingsClose").addEventListener("click", closeSettings);
+    $("settingsScreen").addEventListener("mousedown", (e) => {
+        if (e.target === $("settingsScreen")) closeSettings();
+    });
     document.querySelectorAll(".settings-nav-item").forEach((btn) => {
         btn.addEventListener("click", () => switchSettingsTab(btn.dataset.tab));
     });
@@ -216,10 +220,7 @@ function bindUI() {
     $("settingsZoomIn").addEventListener("click", () => { zoomIn(); updateSettingsZoom(); });
     $("settingsZoomOut").addEventListener("click", () => { zoomOut(); updateSettingsZoom(); });
     $("settingsZoomReset").addEventListener("click", () => { zoomReset(); updateSettingsZoom(); });
-    $("settingsCaptureToggle").addEventListener("click", () => {
-        toggleCapture();
-        updateSettingsCapture();
-    });
+    $("settingsCaptureToggle").addEventListener("click", toggleCapture);
     $("settingsLock").addEventListener("click", () => {
         closeSettings();
         lockNow();
@@ -327,11 +328,11 @@ function bindUI() {
         }
         if (e.key === "Escape") {
             if (palette.open) { closePalette(); return; }
-            if ($("docMenu").style.display !== "none") { closeMenu(); return; }
-            if ($("sideMenu").style.display !== "none") { closeSideMenu(); return; }
-            if ($("connModal").style.display !== "none") { closeConnModal(); return; }
-            if ($("resetModal").style.display !== "none") { closeResetModal(); return; }
-            if ($("aboutModal").style.display !== "none") { closeAboutModal(); return; }
+            if (uiIsOpen($("docMenu"))) { closeMenu(); return; }
+            if (uiIsOpen($("sideMenu"))) { closeSideMenu(); return; }
+            if (uiIsOpen($("connModal"))) { closeConnModal(); return; }
+            if (uiIsOpen($("resetModal"))) { closeResetModal(); return; }
+            if (uiIsOpen($("aboutModal"))) { closeAboutModal(); return; }
             if (settingsOpen) { closeSettings(); return; }
             if (find.open) closeFindBar();
         }
@@ -508,11 +509,16 @@ function clearMainUI() {
     $("searchInput").value = "";
     $("tocPanel").style.display = "none";
     $("tocContent").innerHTML = "";
-    closeFindBar(); closeMenu(); closeSideMenu(); closePalette();
+    closeFindBar(true); closeMenu(true); closeSideMenu(true); closePalette(true);
+    settingsOpen = false;
+    uiHideNow($("settingsScreen"));
+    uiHideNow($("connModal"));
+    uiHideNow($("resetModal"));
+    uiHideNow($("aboutModal"));
+    clearTimeout(toastTimer); uiHideNow($("toast"));
+    clearTimeout(noticeTimer); uiHideNow($("updateNotification"));
     $("docViewer").style.display = "none";
     $("welcomeScreen").style.display = "none";
-    $("updateNotification").style.display = "none";
-    $("toast").style.display = "none";
     $("mainScreen").style.display = "none";
     clearTimeout(searchTimer);
 }
@@ -576,7 +582,7 @@ async function connect() {
 async function showAbout() {
     const v = await go().AppVersion();
     $("aboutVersion").textContent = v === "dev" ? "dev-сборка" : "v" + v;
-    $("aboutModal").style.display = "flex";
+    uiShow($("aboutModal"), "flex");
 }
 
 function openMenu() {
@@ -584,8 +590,7 @@ function openMenu() {
     const noDoc = $("docViewer").style.display === "none";
     $("menuFind").classList.toggle("disabled", noDoc);
     const menu = $("docMenu");
-    menu.style.display = "block";
-    void menu.offsetWidth;
+    uiShow(menu, "block");
     const r = $("menuBtn").getBoundingClientRect();
     const mh = menu.offsetHeight;
     let top = r.bottom + 8;
@@ -597,31 +602,35 @@ function openMenu() {
     menu.style.right = "20px";
 }
 
-function closeMenu() { $("docMenu").style.display = "none"; }
+function closeMenu(instant) {
+    if (instant) uiHideNow($("docMenu"));
+    else uiHide($("docMenu"));
+}
 
 function openSideMenu() {
     closeMenu();
     $("fwSwitch").classList.toggle("on", fullWidth);
     $("capSwitch").classList.toggle("on", captureProtect);
-    $("sideMenu").style.display = "block";
+    uiShow($("sideMenu"), "block");
     $("sideAccountBtn").setAttribute("aria-expanded", "true");
 }
 
-function closeSideMenu() {
-    $("sideMenu").style.display = "none";
+function closeSideMenu(instant) {
     $("sideAccountBtn").setAttribute("aria-expanded", "false");
+    if (instant) uiHideNow($("sideMenu"));
+    else uiHide($("sideMenu"));
 }
 
 window.addEventListener("resize", () => {
-    closeMenu();
-    closeSideMenu();
-    closePalette();
+    closeMenu(true);
+    closeSideMenu(true);
+    closePalette(true);
     updateMaxState();
 });
 
 async function openConnModal() {
     $("connError").textContent = "";
-    $("connModal").style.display = "flex";
+    uiShow($("connModal"), "flex");
     connHasKey = false;
     try {
         const s = await go().GetSettings();
@@ -633,7 +642,7 @@ async function openConnModal() {
     $("connUrl").focus();
 }
 
-function closeConnModal() { $("connModal").style.display = "none"; }
+function closeConnModal() { uiHide($("connModal")); }
 
 async function saveConnection() {
     const url = $("connUrl").value.trim();
@@ -664,9 +673,9 @@ async function saveConnection() {
     }
 }
 
-function openResetModal() { $("resetModal").style.display = "flex"; }
-function closeResetModal() { $("resetModal").style.display = "none"; }
-function closeAboutModal() { $("aboutModal").style.display = "none"; }
+function openResetModal() { uiShow($("resetModal"), "flex"); }
+function closeResetModal() { uiHide($("resetModal")); }
+function closeAboutModal() { uiHide($("aboutModal")); }
 
 async function doReset() {
     const btn = $("resetConfirm");
@@ -687,29 +696,51 @@ async function doReset() {
 
 /* ---------- Защита от захвата экрана ---------- */
 
-function initCapture() {
-    const saved = localStorage.getItem("or.captureProtect");
-    const on = saved === null ? isPortable : saved === "1";
-    if (!go().SetCaptureProtection) return;
-    go().SetCaptureProtection(on).then((ok) => {
-        captureProtect = ok && on;
-        $("capSwitch").classList.toggle("on", captureProtect);
-    }).catch(() => { });
+function renderCaptureState() {
+    const sw = $("capSwitch");
+    if (sw) sw.classList.toggle("on", captureProtect);
+    const t = $("settingsCaptureToggle");
+    if (t) t.classList.toggle("active", captureProtect);
 }
 
-function toggleCapture() {
-    if (!go().SetCaptureProtection) {
+async function initCapture() {
+    const saved = localStorage.getItem("or.captureProtect");
+    const on = saved === null ? isPortable : saved === "1";
+    if (typeof go().SetCaptureProtection !== "function") {
+        captureProtect = false;
+        renderCaptureState();
+        return;
+    }
+    try {
+        const ok = await go().SetCaptureProtection(on);
+        captureProtect = ok && on;
+    } catch (err) {
+        captureProtect = false;
+        console.warn("[UI] initCapture:", err);
+    }
+    renderCaptureState();
+}
+
+async function toggleCapture() {
+    if (captureBusy) return;
+    if (typeof go().SetCaptureProtection !== "function") {
         showToast("Защита от захвата", "Доступна только на Windows", true);
         return;
     }
+    captureBusy = true;
     const next = !captureProtect;
-    go().SetCaptureProtection(next).then((ok) => {
+    try {
+        const ok = await go().SetCaptureProtection(next);
         captureProtect = ok && next;
         localStorage.setItem("or.captureProtect", captureProtect ? "1" : "0");
-        $("capSwitch").classList.toggle("on", captureProtect);
         showToast(captureProtect ? "Защита от захвата включена" : "Защита от захвата выключена",
             ok ? "Окно не видно программам записи экрана" : "Не удалось применить (Windows 10 2004+)", !ok);
-    }).catch((err) => showToast("Ошибка", String(err), true));
+    } catch (err) {
+        showToast("Ошибка", String(err), true);
+    } finally {
+        captureBusy = false;
+        renderCaptureState();
+    }
 }
 
 /* ---------- Буфер обмена ---------- */
@@ -957,15 +988,16 @@ function updateFavBtn(on) {
 
 function openPalette() {
     palette.open = true;
-    $("palette").style.display = "flex";
+    uiShow($("palette"), "flex");
     $("paletteInput").value = "";
     $("paletteInput").focus();
     paletteDefault();
 }
 
-function closePalette() {
+function closePalette(instant) {
     palette.open = false;
-    $("palette").style.display = "none";
+    if (instant) uiHideNow($("palette"));
+    else uiHide($("palette"));
 }
 
 async function paletteDefault() {
@@ -1445,16 +1477,17 @@ function findSignature() {
 
 function openFindBar(prefill) {
     find.open = true;
-    $("findBar").style.display = "flex";
+    uiShow($("findBar"), "flex");
     if (prefill !== undefined) $("findInput").value = prefill;
     $("findInput").focus();
     $("findInput").select();
     runFind();
 }
 
-function closeFindBar() {
+function closeFindBar(instant) {
     find.open = false;
-    $("findBar").style.display = "none";
+    if (instant) uiHideNow($("findBar"));
+    else uiHide($("findBar"));
     clearHighlights();
     find.matches = [];
     find.current = -1;
@@ -1628,8 +1661,14 @@ function showUpdatedDocs(titles) {
         li.textContent = t;
         list.appendChild(li);
     });
-    $("updateNotification").style.display = "block";
-    setTimeout(() => { $("updateNotification").style.display = "none"; }, 6000);
+    uiShow($("updateNotification"), "block");
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(hideNotice, 6000);
+}
+
+function hideNotice() {
+    clearTimeout(noticeTimer);
+    uiHide($("updateNotification"));
 }
 
 async function syncFullNow() {
@@ -1677,9 +1716,9 @@ function showToast(title, msg, isErr) {
     t.classList.toggle("error", !!isErr);
     $("toastTitle").textContent = title;
     $("toastMsg").textContent = msg;
-    t.style.display = "block";
+    uiShow(t, "block");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { t.style.display = "none"; }, 4000);
+    toastTimer = setTimeout(() => uiHide(t), 4000);
 }
 
 /* ---------- Тема / ширина / сайдбар ---------- */
@@ -1760,14 +1799,16 @@ function initResizer() {
 }
 
 function openSettings() {
+    closeMenu();
+    closeSideMenu();
     settingsOpen = true;
-    $("settingsScreen").style.display = "flex";
+    uiShow($("settingsScreen"), "flex");
     updateSettingsUI();
 }
 
 function closeSettings() {
     settingsOpen = false;
-    $("settingsScreen").style.display = "none";
+    uiHide($("settingsScreen"));
 }
 
 function switchSettingsTab(tabId) {
@@ -1846,7 +1887,7 @@ function updateSettingsZoom() {
 }
 
 function updateSettingsCapture() {
-    $("settingsCaptureToggle").classList.toggle("active", captureProtect);
+    renderCaptureState();
 }
 
 function updateSettingsAbout() {
@@ -1854,6 +1895,8 @@ function updateSettingsAbout() {
         const version = v === "dev" ? "dev-сборка" : "v" + v;
         $("settingsAboutVersion").textContent = version;
         $("settingsCurrentVersion").textContent = version;
+        const nav = $("settingsNavVersion");
+        if (nav) nav.textContent = v === "dev" ? "dev" : "v" + v;
     });
 }
 
