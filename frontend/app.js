@@ -1696,6 +1696,9 @@ async function syncNow() {
 }
 
 function bindBackendEvents() {
+    window.runtime.EventsOn("update:progress", (progress) => {
+        if (progress) renderUpdateProgress(progress);
+    });
     window.runtime.EventsOn("app:locked", () => {
         if ($("mainScreen").style.display === "none") return;
         clearMainUI();
@@ -1973,6 +1976,7 @@ async function checkForUpdates() {
     btn.disabled = true;
     btn.textContent = "Проверка...";
     status.textContent = "";
+    status.className = "settings-note";
     try {
         const update = await go().CheckForUpdate();
         if (update && update.available) {
@@ -1990,18 +1994,104 @@ async function checkForUpdates() {
     }
 }
 
+function formatUpdateSize(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 0) return "";
+    const mb = bytes / (1024 * 1024);
+    return mb >= 10 ? mb.toFixed(0) + " МБ" : mb.toFixed(1) + " МБ";
+}
+
+function renderUpdateProgress(progress) {
+    const status = $("settingsUpdateStatus");
+    const state = progress.state || "downloading";
+    if (state === "error") {
+        status.className = "settings-note update-error";
+        status.textContent = "Не удалось установить обновление: " + (progress.message || "неизвестная ошибка");
+        return;
+    }
+
+    status.className = "settings-note update-progress";
+    status.replaceChildren();
+    const labels = {
+        downloading: "Загрузка обновления",
+        verifying: "Проверка файла и контрольной суммы",
+        installing: "Подготовка к установке",
+        restarting: "Обновление готово — перезапуск приложения"
+    };
+    const label = document.createElement("div");
+    label.className = "update-progress-label";
+    const versionLabel = progress.version ? " · v" + progress.version : "";
+    label.textContent = (labels[state] || "Обновление") + versionLabel;
+    status.appendChild(label);
+
+    if (state === "downloading") {
+        const total = Number(progress.total) || 0;
+        const downloaded = Number(progress.downloaded) || 0;
+        const percent = total > 0 ? Math.max(0, Math.min(100, Number(progress.percent) || 0)) : 0;
+        const meta = document.createElement("div");
+        meta.className = "update-progress-meta";
+        meta.textContent = total > 0
+            ? formatUpdateSize(downloaded) + " из " + formatUpdateSize(total) + " · " + percent + "%"
+            : formatUpdateSize(downloaded) + " загружено";
+        status.appendChild(meta);
+
+        const track = document.createElement("div");
+        track.className = "update-progress-track";
+        track.setAttribute("role", "progressbar");
+        track.setAttribute("aria-label", "Загрузка обновления");
+        if (total > 0) {
+            track.setAttribute("aria-valuemin", "0");
+            track.setAttribute("aria-valuemax", "100");
+            track.setAttribute("aria-valuenow", String(percent));
+        } else {
+            track.setAttribute("aria-valuetext", "Загрузка");
+            track.classList.add("indeterminate");
+        }
+        const fill = document.createElement("div");
+        fill.className = "update-progress-fill";
+        if (total > 0) fill.style.width = percent + "%";
+        track.appendChild(fill);
+        status.appendChild(track);
+    } else {
+        const meta = document.createElement("div");
+        meta.className = "update-progress-meta";
+        meta.textContent = state === "restarting" ? "Приложение сейчас закроется и запустит новую версию." : "Это займёт всего несколько секунд.";
+        status.appendChild(meta);
+        if (state !== "restarting") {
+            const track = document.createElement("div");
+            track.className = "update-progress-track indeterminate";
+            track.setAttribute("role", "progressbar");
+            track.setAttribute("aria-label", label.textContent);
+            const fill = document.createElement("div");
+            fill.className = "update-progress-fill";
+            track.appendChild(fill);
+            status.appendChild(track);
+        }
+    }
+}
+
 async function installUpdate(update) {
     const status = $("settingsUpdateStatus");
+    const installButton = $("settingsInstallUpdate");
     if (typeof go().DownloadAndInstallUpdate !== "function") {
         console.warn("[UI] installUpdate: binding DownloadAndInstallUpdate not found");
         status.textContent = "Установка обновлений недоступна в этой сборке";
         return;
     }
-    status.textContent = "Загрузка обновления...";
+    if (installButton) {
+        installButton.disabled = true;
+        installButton.textContent = "Подготовка...";
+    }
+    renderUpdateProgress({state: "downloading", downloaded: 0, total: 0, percent: 0, version: update.version});
     try {
         await go().DownloadAndInstallUpdate(update.downloadUrl);
-        status.textContent = "Установка... приложение перезапустится";
+        renderUpdateProgress({state: "restarting", version: update.version});
     } catch (err) {
-        status.textContent = "Ошибка установки: " + err;
+        renderUpdateProgress({state: "error", message: String(err)});
+        const retry = document.createElement("button");
+        retry.className = "btn-primary btn-sm";
+        retry.style.marginTop = "8px";
+        retry.textContent = "Повторить установку";
+        retry.addEventListener("click", () => installUpdate(update));
+        status.appendChild(retry);
     }
 }

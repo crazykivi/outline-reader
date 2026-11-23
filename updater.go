@@ -77,7 +77,7 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 	return info, nil
 }
 
-func (a *App) DownloadAndInstallUpdate(rawURL string) error {
+func (a *App) DownloadAndInstallUpdate(rawURL string) (retErr error) {
 	if runtime.GOOS != "windows" {
 		return fmt.Errorf("автообновление доступно только на Windows")
 	}
@@ -105,6 +105,11 @@ func (a *App) DownloadAndInstallUpdate(rawURL string) error {
 			a.updMu.Lock()
 			a.updateInProgress = false
 			a.updMu.Unlock()
+		}
+	}()
+	defer func() {
+		if retErr != nil {
+			a.emit("update:progress", map[string]any{"state": "error", "message": retErr.Error()})
 		}
 	}()
 
@@ -149,12 +154,14 @@ func (a *App) DownloadAndInstallUpdate(rawURL string) error {
 		return err
 	}
 
+	a.emit("update:progress", map[string]any{"state": "installing", "version": info.Version})
 	if err := a.restartAfterUpdate(exe, tmp, old, readyPath); err != nil {
 		_ = os.Remove(readyPath)
 		return fmt.Errorf("запуск помощника обновления: %w", err)
 	}
 	keepTemp = true
 	accepted = true
+	a.emit("update:progress", map[string]any{"state": "restarting", "version": info.Version})
 	log.Printf("[UPDATE] помощник обновления запущен, ожидается закрытие pid=%d", os.Getpid())
 	wailsruntime.Quit(a.ctx)
 	return nil
@@ -257,16 +264,62 @@ func (a *App) downloadUpdate(info *UpdateInfo) (string, error) {
 		drop()
 		return "", fmt.Errorf("скачивание: %s", resp.Status)
 	}
-	n, err := io.Copy(f, io.LimitReader(resp.Body, maxUpdateSize+1))
-	_ = f.Close()
-	if err != nil {
+	total := resp.ContentLength
+	a.emit("update:progress", map[string]any{"state": "downloading", "downloaded": int64(0), "total": total, "percent": 0, "version": info.Version})
+	buf := make([]byte, 64*1024)
+	var n int64
+	lastEmit := time.Now()
+	lastPercent := -1
+	for {
+		read, readErr := resp.Body.Read(buf)
+		if read > 0 {
+			written, writeErr := f.Write(buf[:read])
+			n += int64(written)
+			if writeErr != nil {
+				drop()
+				return "", writeErr
+			}
+			if written != read {
+				drop()
+				return "", io.ErrShortWrite
+			}
+			if n > maxUpdateSize {
+				drop()
+				return "", fmt.Errorf("файл обновления слишком большой")
+			}
+			percent := 0
+			if total > 0 {
+				percent = int(n * 100 / total)
+				if percent > 100 {
+					percent = 100
+				}
+			}
+			if percent != lastPercent || time.Since(lastEmit) >= 150*time.Millisecond {
+				a.emit("update:progress", map[string]any{"state": "downloading", "downloaded": n, "total": total, "percent": percent, "version": info.Version})
+				lastPercent, lastEmit = percent, time.Now()
+			}
+		}
+		if readErr != nil {
+			if readErr != io.EOF {
+				drop()
+				return "", readErr
+			}
+			break
+		}
+	}
+	if err := f.Sync(); err != nil {
+		drop()
+		return "", err
+	}
+	if err := f.Close(); err != nil {
 		_ = os.Remove(tmp)
 		return "", err
 	}
-	if n > maxUpdateSize {
+	if total > 0 && n != total {
 		_ = os.Remove(tmp)
-		return "", fmt.Errorf("файл обновления слишком большой")
+		return "", fmt.Errorf("загрузка прервана: получено %d из %d байт", n, total)
 	}
+	a.emit("update:progress", map[string]any{"state": "verifying", "downloaded": n, "total": total, "percent": 100, "version": info.Version})
 	sum, err := fileSHA256(tmp)
 	if err != nil || !strings.EqualFold(sum, info.SHA256) {
 		_ = os.Remove(tmp)

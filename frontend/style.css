@@ -724,6 +724,25 @@ body.maximised .ic-restore { display: block; }
 .settings-note { font-size: 12.5px; color: var(--muted); line-height: 1.6; padding: 0 2px; }
 .settings-note:empty { display: none; }
 .settings-note strong { color: var(--text); }
+.settings-note.update-progress { display: flex; flex-direction: column; gap: 7px; margin-top: 12px; }
+.update-progress-label { color: var(--text); font-size: 13px; font-weight: 600; }
+.update-progress-meta { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.update-progress-track {
+    position: relative; height: 6px; overflow: hidden; border-radius: 999px;
+    background: var(--border); width: 100%;
+}
+.update-progress-fill {
+    height: 100%; width: 0; border-radius: inherit; background: var(--accent);
+    transition: width .12s linear;
+}
+.update-progress-track.indeterminate .update-progress-fill {
+    position: absolute; width: 36%; animation: update-progress-slide 1.15s ease-in-out infinite;
+}
+@keyframes update-progress-slide {
+    from { transform: translateX(-110%); }
+    to { transform: translateX(290%); }
+}
+.settings-note.update-error { color: var(--danger, #d65b5b); margin-top: 10px; }
 
 .settings-about { display: flex; align-items: center; gap: 14px; padding: 16px; }
 .settings-about .about-logo { width: 48px; height: 48px; margin: 0; border-radius: 12px; flex: none; }
