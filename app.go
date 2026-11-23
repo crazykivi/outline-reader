@@ -54,7 +54,8 @@ type App struct {
 	idleTimeout  time.Duration
 	updMu        sync.Mutex
 	lastUpdate   *UpdateInfo
-	updateAPI    string
+	updateAPI         string
+	updateInProgress  bool
 }
 
 type unlockGuard struct {
@@ -98,9 +99,6 @@ func (a *App) init() error {
 		a.dataDir = filepath.Dir(a.dbPath)
 	}
 	a.cleanupLeftovers()
-	if exe, err := os.Executable(); err == nil {
-		_ = os.Remove(exe + ".old")
-	}
 	log.Printf("[APP] база заблокирована, нужен мастер-пароль (portable=%v)", a.portable)
 	return nil
 }

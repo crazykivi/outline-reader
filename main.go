@@ -74,6 +74,11 @@ func main() {
 			Middleware: app.imageMiddleware,
 		},
 		OnStartup: app.startup,
+		OnDomReady: func(ctx context.Context) {
+			if err := app.markUpdateReady(); err != nil {
+				log.Printf("[UPDATE] подтверждение готовности: %v", err)
+			}
+		},
 		OnShutdown: func(ctx context.Context) {
 			app.shutdown()
 			wipeWebviewProfile(profileDir)

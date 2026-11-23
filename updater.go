@@ -81,17 +81,36 @@ func (a *App) DownloadAndInstallUpdate(rawURL string) error {
 	if runtime.GOOS != "windows" {
 		return fmt.Errorf("автообновление доступно только на Windows")
 	}
-	a.updMu.Lock()
-	info := a.lastUpdate
-	a.updMu.Unlock()
 
-	if info == nil || !info.Available || rawURL != info.DownloadURL {
+	a.updMu.Lock()
+	if a.updateInProgress {
+		a.updMu.Unlock()
+		return fmt.Errorf("установка обновления уже выполняется")
+	}
+	if a.lastUpdate == nil || !a.lastUpdate.Available || rawURL != a.lastUpdate.DownloadURL {
+		a.updMu.Unlock()
 		return fmt.Errorf("ссылка не подтверждена проверкой обновлений")
 	}
+	info := *a.lastUpdate
 	if info.SHA256 == "" {
+		a.updMu.Unlock()
 		return fmt.Errorf("нет контрольной суммы релиза")
 	}
+	a.updateInProgress = true
+	a.updMu.Unlock()
 
+	accepted := false
+	defer func() {
+		if !accepted {
+			a.updMu.Lock()
+			a.updateInProgress = false
+			a.updMu.Unlock()
+		}
+	}()
+
+	if a.ctx == nil {
+		return fmt.Errorf("приложение ещё не запущено")
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -99,28 +118,45 @@ func (a *App) DownloadAndInstallUpdate(rawURL string) error {
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}
+	old := exe + ".old"
+	if _, err := os.Lstat(old); err == nil {
+		return fmt.Errorf("найдена резервная копия %s; автоматическое обновление остановлено, чтобы не перезаписать её", old)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("проверка резервной копии: %w", err)
+	}
 
-	tmp, err := a.downloadUpdate(info)
+	tmp, err := a.downloadUpdate(&info)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(tmp) }()
-
-	old, err := replaceExecutable(exe, tmp)
-	if err != nil {
-		return err
-	}
-	log.Printf("[UPDATE] бинарник заменён на версию %s", info.Version)
-
-	if err := a.restartAfterUpdate(exe, old); err != nil {
-		return fmt.Errorf("перезапуск: %w", err)
-	}
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		if a.ctx != nil {
-			wailsruntime.Quit(a.ctx)
+	keepTemp := false
+	defer func() {
+		if !keepTemp {
+			_ = os.Remove(tmp)
 		}
 	}()
+
+	readyFile, err := os.CreateTemp(os.TempDir(), "outline-reader-ready-*.flag")
+	if err != nil {
+		return fmt.Errorf("создание маркера готовности: %w", err)
+	}
+	readyPath := readyFile.Name()
+	if err := readyFile.Close(); err != nil {
+		_ = os.Remove(readyPath)
+		return err
+	}
+	if err := os.Remove(readyPath); err != nil {
+		return err
+	}
+
+	if err := a.restartAfterUpdate(exe, tmp, old, readyPath); err != nil {
+		_ = os.Remove(readyPath)
+		return fmt.Errorf("запуск помощника обновления: %w", err)
+	}
+	keepTemp = true
+	accepted = true
+	log.Printf("[UPDATE] помощник обновления запущен, ожидается закрытие pid=%d", os.Getpid())
+	wailsruntime.Quit(a.ctx)
 	return nil
 }
 
@@ -243,19 +279,6 @@ func (a *App) downloadUpdate(info *UpdateInfo) (string, error) {
 	}
 	log.Printf("[UPDATE] загружено %d байт, sha256 подтверждён", n)
 	return tmp, nil
-}
-
-func replaceExecutable(exe, tmp string) (string, error) {
-	old := exe + ".old"
-	_ = os.Remove(old)
-	if err := os.Rename(exe, old); err != nil {
-		return "", fmt.Errorf("не удалось освободить имя файла: %w", err)
-	}
-	if err := os.Rename(tmp, exe); err != nil {
-		_ = os.Rename(old, exe)
-		return "", fmt.Errorf("не удалось установить обновление: %w", err)
-	}
-	return old, nil
 }
 
 func fileSHA256(path string) (string, error) {
