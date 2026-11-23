@@ -6,10 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"image"
+	"image/png"
 	"os"
 	"path/filepath"
-
-	"image/png"
 )
 
 func main() {
@@ -23,12 +22,16 @@ func main() {
 	}
 }
 
-func generate(input, output string) error {
+func generate(input, output string) (resultErr error) {
 	file, err := os.Open(input)
 	if err != nil {
 		return fmt.Errorf("open source icon: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil && resultErr == nil {
+			resultErr = fmt.Errorf("close source icon: %w", err)
+		}
+	}()
 
 	source, _, err := image.Decode(file)
 	if err != nil {
