@@ -72,7 +72,7 @@ try {
     throw "The updated application did not become ready before the timeout."
 }
 catch {
-    Write-Error $_
+    Write-Warning $_
 
     if ($newProcess -ne $null) {
         try {
