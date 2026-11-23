@@ -54,8 +54,8 @@ type App struct {
 	idleTimeout  time.Duration
 	updMu        sync.Mutex
 	lastUpdate   *UpdateInfo
-	updateAPI    string
-	updateInProgress bool
+	updateAPI         string
+	updateInProgress  bool
 }
 
 type unlockGuard struct {
