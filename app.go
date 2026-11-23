@@ -55,6 +55,7 @@ type App struct {
 	updMu        sync.Mutex
 	lastUpdate   *UpdateInfo
 	updateAPI    string
+	updateInProgress bool
 }
 
 type unlockGuard struct {
