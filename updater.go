@@ -281,19 +281,6 @@ func (a *App) downloadUpdate(info *UpdateInfo) (string, error) {
 	return tmp, nil
 }
 
-func replaceExecutable(exe, tmp string) (string, error) {
-	old := exe + ".old"
-	_ = os.Remove(old)
-	if err := os.Rename(exe, old); err != nil {
-		return "", fmt.Errorf("не удалось освободить имя файла: %w", err)
-	}
-	if err := os.Rename(tmp, exe); err != nil {
-		_ = os.Rename(old, exe)
-		return "", fmt.Errorf("не удалось установить обновление: %w", err)
-	}
-	return old, nil
-}
-
 func fileSHA256(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
