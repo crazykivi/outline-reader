@@ -158,6 +158,27 @@ export namespace main {
 	        this.deleted = source["deleted"];
 	    }
 	}
+	
+	export class UpdateInfo {
+	    available: boolean;
+	    version: string;
+	    downloadUrl: string;
+	    sha256: string;
+	    note: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.version = source["version"];
+	        this.downloadUrl = source["downloadUrl"];
+	        this.sha256 = source["sha256"];
+	        this.note = source["note"];
+	    }
+	}
 
 }
 

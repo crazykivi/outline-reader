@@ -6,8 +6,16 @@ export function AppVersion() {
   return window['go']['main']['App']['AppVersion']();
 }
 
+export function CheckForUpdate() {
+  return window['go']['main']['App']['CheckForUpdate']();
+}
+
 export function Context() {
   return window['go']['main']['App']['Context']();
+}
+
+export function DownloadAndInstallUpdate(arg1) {
+  return window['go']['main']['App']['DownloadAndInstallUpdate'](arg1);
 }
 
 export function GetDocument(arg1) {
