@@ -63,6 +63,7 @@ func main() {
 
 	err = wails.Run(&options.App{
 		Title:            "Outline Reader",
+		HideWindowOnClose: true,
 		Frameless:        true,
 		Width:            1200,
 		Height:           800,
@@ -80,6 +81,7 @@ func main() {
 			}
 		},
 		OnShutdown: func(ctx context.Context) {
+			app.stopSessionWatcher()
 			app.shutdown()
 			wipeWebviewProfile(profileDir)
 		},
