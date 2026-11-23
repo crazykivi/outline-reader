@@ -79,6 +79,7 @@ catch {
             $newProcess.Refresh()
             if (-not $newProcess.HasExited) {
                 Stop-Process -Id $newProcess.Id -Force -ErrorAction SilentlyContinue
+                Wait-Process -Id $newProcess.Id -Timeout 10 -ErrorAction SilentlyContinue
             }
         } catch {}
     }
