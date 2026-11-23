@@ -151,12 +151,6 @@
                     <span class="menu-icon"></span>
                     <span class="menu-label">Переключить тему</span>
                 </button>
-                <button id="settingsBtn" class="menu-item">
-                    <span class="menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
-                    </svg></span>
-                    <span class="menu-label">Настройки</span>
-                </button>
                 <button id="syncBtn" class="menu-item">
                     <span class="menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -188,6 +182,13 @@
                     <span class="switch" id="capSwitch"></span>
                 </button>
                 <div class="menu-sep"></div>
+                <button id="settingsBtn" class="menu-item">
+                    <span class="menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+                    </svg></span>
+                    <span class="menu-label">Настройки</span>
+                </button>
+                <div class="menu-sep"></div>
                 <button id="menuReset" class="menu-item danger">
                     <span class="menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -201,173 +202,273 @@
 
             <div id="settingsScreen" class="settings-overlay" style="display:none">
                 <div class="settings-container">
-                    <div class="settings-sidebar">
+                    <aside class="settings-sidebar">
                         <div class="settings-header">
                             <h2>Настройки</h2>
-                            <button id="settingsClose" class="btn-mini" title="Закрыть">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M18 6L6 18M6 6l12 12"/>
+                            <button id="settingsClose" class="settings-close" title="Закрыть (Esc)">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round">
+                                    <path d="M18 6 6 18M6 6l12 12" />
                                 </svg>
                             </button>
                         </div>
                         <nav class="settings-nav">
                             <button class="settings-nav-item active" data-tab="sync">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M21 12a9 9 0 11-2.64-6.36M21 3v6h-6"/>
-                                </svg>
-                                Синхронизация
+                                <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                                        <path d="M21 3v6h-6" />
+                                    </svg></span>
+                                <span class="nav-label">Синхронизация</span>
                             </button>
                             <button class="settings-nav-item" data-tab="connection">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
-                                </svg>
-                                Подключение
+                                <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                                    </svg></span>
+                                <span class="nav-label">Подключение</span>
                             </button>
                             <button class="settings-nav-item" data-tab="appearance">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
-                                </svg>
-                                Внешний вид
+                                <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="4" />
+                                        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+                                    </svg></span>
+                                <span class="nav-label">Внешний вид</span>
                             </button>
                             <button class="settings-nav-item" data-tab="security">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
-                                </svg>
-                                Безопасность
+                                <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                                        <path d="m9 12 2 2 4-4" />
+                                    </svg></span>
+                                <span class="nav-label">Безопасность</span>
                             </button>
                             <button class="settings-nav-item" data-tab="updates">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
-                                </svg>
-                                Обновления
+                                <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M12 3v12" />
+                                        <path d="m8 11 4 4 4-4" />
+                                        <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+                                    </svg></span>
+                                <span class="nav-label">Обновления</span>
                             </button>
                             <button class="settings-nav-item" data-tab="about">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none"stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <circle cx="12" cy="12" r="10"></circle>
-                                    <path d="M12 16v-4M12 8h.01"></path>
-                                </svg>
-                                О программе
+                                <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="9" />
+                                        <path d="M12 16v-4M12 8h.01" />
+                                    </svg></span>
+                                <span class="nav-label">О программе</span>
                             </button>
+                            <div class="settings-nav-sep"></div>
                             <button class="settings-nav-item danger" data-tab="danger">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-                                    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                                </svg>
-                                Опасная зона
+                                <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                                        <path d="M12 9v4M12 17h.01" />
+                                    </svg></span>
+                                <span class="nav-label">Опасная зона</span>
                             </button>
                         </nav>
-                    </div>
+                        <div class="settings-nav-foot">
+                            <span>Outline Reader</span>
+                            <span class="nav-version" id="settingsNavVersion">dev</span>
+                        </div>
+                    </aside>
+
                     <div class="settings-content">
                         <div class="settings-tab active" id="tab-sync">
-                            <h3>Синхронизация</h3>
-                            <div class="settings-section">
-                                <h4>Статус</h4>
-                                <div class="settings-info">
-                                    <span id="settingsSyncStatus">Не синхронизировано</span>
-                                    <span id="settingsSyncTime"></span>
+                            <header class="settings-head">
+                                <h3>Синхронизация</h3>
+                                <p>Локальная копия обновляется автоматически раз в минуту, полная — раз в сутки.</p>
+                            </header>
+                            <div class="settings-card">
+                                <div class="settings-row">
+                                    <div class="settings-row-text">
+                                        <span class="settings-row-title">Состояние копии</span>
+                                        <span class="settings-row-hint">
+                                            <span id="settingsSyncStatus">Не синхронизировано</span>
+                                            <span id="settingsSyncTime"></span>
+                                        </span>
+                                    </div>
+                                    <button id="settingsSyncNow" class="btn-primary btn-sm">Синхронизировать</button>
                                 </div>
-                                <button id="settingsSyncNow" class="btn-primary">Синхронизировать сейчас</button>
-                            </div>
-                            <div class="settings-section">
-                                <h4>Полная пересинхронизация</h4>
-                                <p class="settings-description">Загружает все документы заново. Используйте при проблемах с данными.</p>
-                                <button id="settingsSyncFull" class="btn-secondary">Полная пересинхронизация</button>
+                                <div class="settings-row">
+                                    <div class="settings-row-text">
+                                        <span class="settings-row-title">Полная пересинхронизация</span>
+                                        <span class="settings-row-hint">Заново скачает все документы и вложения. Используйте при проблемах с данными.</span>
+                                    </div>
+                                    <button id="settingsSyncFull" class="btn-secondary btn-sm">Пересинхронизировать</button>
+                                </div>
                             </div>
                         </div>
+
                         <div class="settings-tab" id="tab-connection">
-                            <h3>Подключение</h3>
-                            <div class="settings-section">
-                                <div class="field">
+                            <header class="settings-head">
+                                <h3>Подключение</h3>
+                                <p>Сервер Outline и API-ключ. Ключ хранится в зашифрованной локальной базе.</p>
+                            </header>
+                            <div class="settings-card">
+                                <div class="settings-field">
                                     <label for="settingsConnUrl">URL сервера</label>
-                                    <input type="text" id="settingsConnUrl" placeholder="https://outline.example.com">
+                                    <input type="text" id="settingsConnUrl" placeholder="https://outline.example.com"
+                                        spellcheck="false" autocomplete="off">
                                 </div>
-                                <div class="field">
+                                <div class="settings-field">
                                     <label for="settingsConnKey">API-ключ</label>
-                                    <input type="password" id="settingsConnKey" placeholder="ol_api_...">
+                                    <input type="password" id="settingsConnKey" placeholder="ol_api_..." spellcheck="false"
+                                        autocomplete="off" data-1p-ignore data-lpignore="true">
                                 </div>
+                            </div>
+                            <div class="settings-actions">
                                 <div id="settingsConnError" class="setup-error"></div>
-                                <button id="settingsConnSave" class="btn-primary">Сохранить</button>
+                                <button id="settingsConnSave" class="btn-primary btn-sm">Сохранить</button>
                             </div>
                         </div>
+
                         <div class="settings-tab" id="tab-appearance">
-                            <h3>Внешний вид</h3>
-                            <div class="settings-section">
-                                <h4>Тема</h4>
-                                <div class="settings-toggle">
-                                    <span>Тёмная тема</span>
-                                    <button id="settingsThemeToggle" class="toggle-btn">
+                            <header class="settings-head">
+                                <h3>Внешний вид</h3>
+                                <p>Оформление интерфейса и чтение документов.</p>
+                            </header>
+                            <div class="settings-card">
+                                <div class="settings-row">
+                                    <div class="settings-row-text">
+                                        <span class="settings-row-title">Тёмная тема</span>
+                                        <span class="settings-row-hint">Переключение светлого и тёмного оформления</span>
+                                    </div>
+                                    <button id="settingsThemeToggle" class="toggle-btn" aria-label="Тёмная тема">
                                         <span class="toggle-thumb"></span>
                                     </button>
                                 </div>
-                            </div>
-                            <div class="settings-section">
-                                <h4>Масштаб текста</h4>
-                                <div class="settings-zoom">
-                                    <button id="settingsZoomOut" class="btn-icon">−</button>
-                                    <span id="settingsZoomValue">100%</span>
-                                    <button id="settingsZoomIn" class="btn-icon">+</button>
-                                    <button id="settingsZoomReset" class="btn-secondary">Сбросить</button>
-                                </div>
-                            </div>
-                            <div class="settings-section">
-                                <h4>Отображение</h4>
-                                <div class="settings-toggle">
-                                    <span>Документы на всю ширину</span>
-                                    <button id="settingsFullWidth" class="toggle-btn">
+                                <div class="settings-row">
+                                    <div class="settings-row-text">
+                                        <span class="settings-row-title">Документы на всю ширину</span>
+                                        <span class="settings-row-hint">Убирает ограничение ширины страницы</span>
+                                    </div>
+                                    <button id="settingsFullWidth" class="toggle-btn" aria-label="На всю ширину">
                                         <span class="toggle-thumb"></span>
                                     </button>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-row-text">
+                                        <span class="settings-row-title">Масштаб текста</span>
+                                        <span class="settings-row-hint">Также меняется через Ctrl + колесо мыши</span>
+                                    </div>
+                                    <div class="settings-zoom">
+                                        <button id="settingsZoomOut" class="zoom-btn" title="Уменьшить">−</button>
+                                        <span id="settingsZoomValue">100%</span>
+                                        <button id="settingsZoomIn" class="zoom-btn" title="Увеличить">+</button>
+                                        <button id="settingsZoomReset" class="zoom-reset" title="Сбросить (Ctrl+0)">Сброс</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+
                         <div class="settings-tab" id="tab-security">
-                            <h3>Безопасность</h3>
-                            <div class="settings-section">
-                                <h4>Защита от захвата экрана</h4>
-                                <p class="settings-description">Скрывает окно от программ записи экрана (Windows 10 2004+)</p>
-                                <div class="settings-toggle">
-                                    <span>Включить защиту</span>
-                                    <button id="settingsCaptureToggle" class="toggle-btn">
+                            <header class="settings-head">
+                                <h3>Безопасность</h3>
+                                <p>База шифруется мастер-паролем и блокируется при простое и блокировке системы.</p>
+                            </header>
+                            <div class="settings-card">
+                                <div class="settings-row">
+                                    <div class="settings-row-text">
+                                        <span class="settings-row-title">Защита от захвата экрана</span>
+                                        <span class="settings-row-hint">Скрывает окно от программ записи экрана (Windows 10 2004+)</span>
+                                    </div>
+                                    <button id="settingsCaptureToggle" class="toggle-btn" aria-label="Защита от захвата">
                                         <span class="toggle-thumb"></span>
                                     </button>
                                 </div>
-                            </div>
-                            <div class="settings-section">
-                                <h4>Блокировка приложения</h4>
-                                <button id="settingsLock" class="btn-secondary">Заблокировать сейчас</button>
+                                <div class="settings-row">
+                                    <div class="settings-row-text">
+                                        <span class="settings-row-title">Блокировка приложения</span>
+                                        <span class="settings-row-hint">Закрывает базу и требует мастер-пароль (Ctrl+L)</span>
+                                    </div>
+                                    <button id="settingsLock" class="btn-secondary btn-sm">Заблокировать</button>
+                                </div>
                             </div>
                         </div>
+
                         <div class="settings-tab" id="tab-updates">
-                            <h3>Обновления</h3>
-                            <div class="settings-section">
-                                <h4>Текущая версия</h4>
-                                <p id="settingsCurrentVersion">v1.0.0</p>
-                                <button id="settingsCheckUpdate" class="btn-primary">Проверить обновления</button>
-                                <div id="settingsUpdateStatus" class="settings-info" style="margin-top: 12px;"></div>
+                            <header class="settings-head">
+                                <h3>Обновления</h3>
+                                <p>Новые версии проверяются по релизам GitHub, файл сверяется по SHA256.</p>
+                            </header>
+                            <div class="settings-card">
+                                <div class="settings-row">
+                                    <div class="settings-row-text">
+                                        <span class="settings-row-title">Текущая версия</span>
+                                        <span class="settings-row-hint">Приложение перезапустится после установки</span>
+                                    </div>
+                                    <span class="settings-version" id="settingsCurrentVersion">dev</span>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-row-text">
+                                        <span class="settings-row-title">Проверка обновлений</span>
+                                        <span class="settings-row-hint">Сравнение с последним опубликованным релизом</span>
+                                    </div>
+                                    <button id="settingsCheckUpdate" class="btn-primary btn-sm">Проверить</button>
+                                </div>
                             </div>
+                            <div id="settingsUpdateStatus" class="settings-note"></div>
                         </div>
+
                         <div class="settings-tab" id="tab-about">
-                            <h3>О программе</h3>
-                            <div class="settings-section">
-                                <div class="about-hero">
+                            <header class="settings-head">
+                                <h3>О программе</h3>
+                            </header>
+                            <div class="settings-card">
+                                <div class="settings-about">
                                     <div class="about-logo">
-                                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-                                            <path d="M2 4h6a4 4 0 014 4v12a3 3 0 00-3-3H2z"/>
-                                            <path d="M22 4h-6a4 4 0 00-4 4v12a3 3 0 013-3h7z"/>
+                                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                            stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2z" />
+                                            <path d="M22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z" />
                                         </svg>
                                     </div>
-                                    <h2 class="about-title">Outline <span>Reader</span></h2>
-                                    <span class="about-badge" id="settingsAboutVersion">dev</span>
+                                    <div class="settings-about-head">
+                                        <h2 class="about-title">Outline <span>Reader</span></h2>
+                                        <span class="about-badge" id="settingsAboutVersion">dev</span>
+                                    </div>
                                 </div>
-                                <p class="about-description">Локальный ридер для Outline Wiki: дерево коллекций, полный текстовый поиск и копия базы на диске.</p>
-                                <a id="settingsAboutRepo" class="about-repo">github.com/crazykivi/outline-reader</a>
+                                <p class="settings-about-text">Локальный ридер для Outline Wiki: дерево коллекций, полный
+                                    текстовый поиск и зашифрованная копия базы на диске. Только чтение — данные в Outline не
+                                    изменяются.</p>
+                            </div>
+                            <div class="settings-card">
+                                <div class="settings-row">
+                                    <div class="settings-row-text">
+                                        <span class="settings-row-title">Исходный код</span>
+                                        <span class="settings-row-hint">Лицензия Apache-2.0</span>
+                                    </div>
+                                    <a id="settingsAboutRepo" class="about-repo">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                                            <path d="M15 3h6v6M10 14 21 3" />
+                                        </svg>
+                                        github.com/crazykivi/outline-reader
+                                    </a>
+                                </div>
                             </div>
                         </div>
+
                         <div class="settings-tab" id="tab-danger">
-                            <h3>Опасная зона</h3>
-                            <div class="settings-section danger">
-                                <h4>Очистить локальную базу</h4>
-                                <p class="settings-description">Удалит локальную копию документов, настройки и состояние синхронизации. Документы в Outline не пострадают.</p>
-                                <button id="settingsReset" class="btn-danger">Очистить базу</button>
+                            <header class="settings-head">
+                                <h3>Опасная зона</h3>
+                                <p>Действия необратимы и затрагивают только локальные данные.</p>
+                            </header>
+                            <div class="settings-card danger">
+                                <div class="settings-row">
+                                    <div class="settings-row-text">
+                                        <span class="settings-row-title">Очистить локальную базу</span>
+                                        <span class="settings-row-hint">Удалит копию документов, настройки подключения и мастер-пароль. Документы в Outline не пострадают.</span>
+                                    </div>
+                                    <button id="settingsReset" class="btn-danger btn-sm">Очистить базу</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -679,6 +780,7 @@
 
     <script src="vendor/marked.min.js"></script>
     <script src="vendor/purify.min.js"></script>
+    <script src="motion.js"></script>
     <script src="app.js"></script>
 </body>
 
