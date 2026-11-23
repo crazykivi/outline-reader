@@ -4,4 +4,6 @@ package main
 
 import "context"
 
-func (a *App) watchSession(ctx context.Context) {}\n\nfunc (a *App) stopSessionWatcher() {}
+func (a *App) watchSession(ctx context.Context) {}
+
+func (a *App) stopSessionWatcher() {}
