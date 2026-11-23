@@ -32,6 +32,7 @@ let guardTimer = null, guardLeft = 0;
 let cachedApiURL = "";
 let connHasKey = false;
 let lastActivitySent = 0;
+let settingsOpen = false;
 
 const palette = { open: false, items: [], sel: 0, timer: null };
 
@@ -76,7 +77,6 @@ function waitBindings(timeoutMs = 5000) {
 function bindUI() {
     $("connectBtn").addEventListener("click", connect);
     $("syncBtn").addEventListener("click", syncNow);
-    $("menuSyncFull").addEventListener("click", () => { closeSideMenu(); syncFullNow(); });
     $("sideSyncBtn").addEventListener("click", syncNow);
     $("winMin").addEventListener("click", () => window.runtime.WindowMinimise());
     $("winMax").addEventListener("click", () => window.runtime.WindowToggleMaximise());
@@ -89,6 +89,10 @@ function bindUI() {
     });
     let lastHeaderDown = { t: 0, x: 0, y: 0 };
     let headerPress = null;
+    document.addEventListener("contextmenu", (e) => {
+        if (e.target.closest("input, textarea, [contenteditable]")) return;
+        e.preventDefault();
+    });
     document.querySelector(".header").addEventListener("mousedown", (e) => {
         if (e.button !== 0) return;
         if (window.wails && window.wails.flags && window.wails.flags.resizeEdge) return;
@@ -159,7 +163,6 @@ function bindUI() {
     $("menuFullWidth").addEventListener("click", () => { applyFullWidth(!fullWidth); });
     $("menuCapture").addEventListener("click", toggleCapture);
     $("menuLock").addEventListener("click", () => { closeSideMenu(); lockNow(); });
-    $("menuConnection").addEventListener("click", () => { closeSideMenu(); openConnModal(); });
     $("menuReset").addEventListener("click", () => { closeSideMenu(); openResetModal(); });
 
     // модалка подключения
@@ -185,6 +188,52 @@ function bindUI() {
         window.runtime.BrowserOpenURL("https://github.com/crazykivi/outline-reader");
     });
     $("aboutModal").addEventListener("mousedown", (e) => { if (e.target === $("aboutModal")) closeAboutModal(); });
+
+    $("settingsBtn").addEventListener("click", openSettings); // добавь эту кнопку в sideMenu
+    $("settingsClose").addEventListener("click", closeSettings);
+    document.querySelectorAll(".settings-nav-item").forEach((btn) => {
+        btn.addEventListener("click", () => switchSettingsTab(btn.dataset.tab));
+    });
+    $("settingsSyncNow").addEventListener("click", async () => {
+        await syncNow();
+        updateSettingsSyncStatus();
+    });
+    $("settingsSyncFull").addEventListener("click", async () => {
+        if (!confirm("Выполнить полную пересинхронизацию?")) return;
+        await syncFullNow();
+        updateSettingsSyncStatus();
+    });
+    $("settingsConnSave").addEventListener("click", saveSettingsConnection);
+    $("settingsThemeToggle").addEventListener("click", () => {
+        const newTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+        applyTheme(newTheme);
+        updateSettingsThemeToggle();
+    });
+    $("settingsFullWidth").addEventListener("click", () => {
+        applyFullWidth(!fullWidth);
+        updateSettingsFullWidth();
+    });
+    $("settingsZoomIn").addEventListener("click", () => { zoomIn(); updateSettingsZoom(); });
+    $("settingsZoomOut").addEventListener("click", () => { zoomOut(); updateSettingsZoom(); });
+    $("settingsZoomReset").addEventListener("click", () => { zoomReset(); updateSettingsZoom(); });
+    $("settingsCaptureToggle").addEventListener("click", () => {
+        toggleCapture();
+        updateSettingsCapture();
+    });
+    $("settingsLock").addEventListener("click", () => {
+        closeSettings();
+        lockNow();
+    });
+    $("settingsCheckUpdate").addEventListener("click", checkForUpdates);
+    $("settingsAboutRepo").addEventListener("click", (e) => {
+        e.preventDefault();
+        window.runtime.BrowserOpenURL("https://github.com/crazykivi/outline-reader");
+    });
+    $("settingsReset").addEventListener("click", () => {
+        if (!confirm("Очистить локальную базу? Это действие нельзя отменить.")) return;
+        closeSettings();
+        doReset();
+    });
 
     // глобальный поиск
     $("searchInput").addEventListener("input", () => {
@@ -283,6 +332,7 @@ function bindUI() {
             if ($("connModal").style.display !== "none") { closeConnModal(); return; }
             if ($("resetModal").style.display !== "none") { closeResetModal(); return; }
             if ($("aboutModal").style.display !== "none") { closeAboutModal(); return; }
+            if (settingsOpen) { closeSettings(); return; }
             if (find.open) closeFindBar();
         }
         if ((e.ctrlKey || e.metaKey) && (e.code === "Equal" || e.code === "NumpadAdd")) {
@@ -319,7 +369,6 @@ function bindUI() {
         if (currentDocUrl) window.runtime.BrowserOpenURL(currentDocUrl);
     });
     $("favBtn").addEventListener("click", toggleFav);
-    $("menuAbout").addEventListener("click", () => { closeSideMenu(); showAbout(); });
     $("menuZoomIn").addEventListener("click", () => { zoomIn(); });
     $("menuZoomOut").addEventListener("click", () => { zoomOut(); });
     $("zoomIndicator").addEventListener("click", zoomReset);
@@ -1708,4 +1757,146 @@ function initResizer() {
         localStorage.setItem("or.sideWidth", w);
         setSideWidth(w);
     });
+}
+
+function openSettings() {
+    settingsOpen = true;
+    $("settingsScreen").style.display = "flex";
+    updateSettingsUI();
+}
+
+function closeSettings() {
+    settingsOpen = false;
+    $("settingsScreen").style.display = "none";
+}
+
+function switchSettingsTab(tabId) {
+    document.querySelectorAll(".settings-tab").forEach((t) => t.classList.remove("active"));
+    document.querySelectorAll(".settings-nav-item").forEach((b) => b.classList.remove("active"));
+    $("tab-" + tabId).classList.add("active");
+    document.querySelector(`[data-tab="${tabId}"]`).classList.add("active");
+}
+
+function updateSettingsUI() {
+    updateSettingsSyncStatus();
+    updateSettingsConnection();
+    updateSettingsThemeToggle();
+    updateSettingsFullWidth();
+    updateSettingsZoom();
+    updateSettingsCapture();
+    updateSettingsAbout();
+}
+
+function updateSettingsSyncStatus() {
+    // Получи статус синхронизации из бэкенда и обнови UI
+    go().GetSyncStats().then((st) => {
+        if (st.lastSync) {
+            const d = new Date(st.lastSync);
+            $("settingsSyncStatus").textContent = "Последняя синхронизация:";
+            $("settingsSyncTime").textContent = d.toLocaleString("ru-RU");
+        } else {
+            $("settingsSyncStatus").textContent = "Не синхронизировано";
+            $("settingsSyncTime").textContent = "";
+        }
+    });
+}
+
+function updateSettingsConnection() {
+    go().GetSettings().then((s) => {
+        $("settingsConnUrl").value = (s && s.apiURL) || "";
+        $("settingsConnKey").value = "";
+        $("settingsConnKey").placeholder = (s && s.hasKey) ? "Ключ сохранён" : "ol_api_...";
+    });
+}
+
+async function saveSettingsConnection() {
+    const url = $("settingsConnUrl").value.trim();
+    const key = $("settingsConnKey").value.trim();
+    $("settingsConnError").textContent = "";
+    if (!url) { $("settingsConnError").textContent = "Заполните URL"; return; }
+    const btn = $("settingsConnSave");
+    btn.disabled = true;
+    try {
+        btn.textContent = "Сохранение...";
+        await go().SetConnection(url, key);
+        btn.textContent = "Синхронизация...";
+        await go().SyncDocuments();
+        showToast("Подключение обновлено", "", false);
+        updateSettingsSyncStatus();
+    } catch (err) {
+        $("settingsConnError").textContent = String(err);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Сохранить";
+    }
+}
+
+function updateSettingsThemeToggle() {
+    const isDark = document.documentElement.dataset.theme === "dark";
+    $("settingsThemeToggle").classList.toggle("active", isDark);
+}
+
+function updateSettingsFullWidth() {
+    $("settingsFullWidth").classList.toggle("active", fullWidth);
+}
+
+function updateSettingsZoom() {
+    const pct = Math.round(fontScale * 100);
+    $("settingsZoomValue").textContent = pct + "%";
+}
+
+function updateSettingsCapture() {
+    $("settingsCaptureToggle").classList.toggle("active", captureProtect);
+}
+
+function updateSettingsAbout() {
+    go().AppVersion().then((v) => {
+        const version = v === "dev" ? "dev-сборка" : "v" + v;
+        $("settingsAboutVersion").textContent = version;
+        $("settingsCurrentVersion").textContent = version;
+    });
+}
+
+async function checkForUpdates() {
+    const btn = $("settingsCheckUpdate");
+    const status = $("settingsUpdateStatus");
+    if (typeof go().CheckForUpdate !== "function") {
+        console.warn("[UI] checkForUpdates: binding CheckForUpdate not found");
+        status.textContent = "Проверка обновлений недоступна в этой сборке";
+        return;
+    }
+    btn.disabled = true;
+    btn.textContent = "Проверка...";
+    status.textContent = "";
+    try {
+        const update = await go().CheckForUpdate();
+        if (update && update.available) {
+            status.innerHTML = `Доступна новая версия: <strong>v${update.version}</strong><br>
+                <button id="settingsInstallUpdate" class="btn-primary" style="margin-top: 8px;">Скачать и установить</button>`;
+            $("settingsInstallUpdate").addEventListener("click", () => installUpdate(update));
+        } else {
+            status.textContent = (update && update.note) || "У вас последняя версия";
+        }
+    } catch (err) {
+        status.textContent = "Ошибка: " + err;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Проверить обновления";
+    }
+}
+
+async function installUpdate(update) {
+    const status = $("settingsUpdateStatus");
+    if (typeof go().DownloadAndInstallUpdate !== "function") {
+        console.warn("[UI] installUpdate: binding DownloadAndInstallUpdate not found");
+        status.textContent = "Установка обновлений недоступна в этой сборке";
+        return;
+    }
+    status.textContent = "Загрузка обновления...";
+    try {
+        await go().DownloadAndInstallUpdate(update.downloadUrl);
+        status.textContent = "Установка... приложение перезапустится";
+    } catch (err) {
+        status.textContent = "Ошибка установки: " + err;
+    }
 }

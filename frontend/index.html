@@ -110,6 +110,16 @@
                     <span class="menu-label">Поиск в документе</span>
                     <span class="menu-hint">Ctrl+F</span>
                 </button>
+                <button id="menuFullWidth" class="menu-item">
+                    <span class="menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path
+                                d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3">
+                            </path>
+                        </svg></span>
+                    <span class="menu-label">На всю ширину</span>
+                    <span class="switch" id="fwSwitch"></span>
+                </button>
                 <button id="menuZoomIn" class="menu-item">
                     <span class="menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -137,10 +147,16 @@
             </div>
 
             <div id="sideMenu" class="menu menu-side" style="display:none" role="menu" aria-label="Меню приложения">
-            <button id="themeBtn" class="menu-item">
-                <span class="menu-icon"></span>
-                <span class="menu-label">Переключить тему</span>
-            </button>
+                <button id="themeBtn" class="menu-item">
+                    <span class="menu-icon"></span>
+                    <span class="menu-label">Переключить тему</span>
+                </button>
+                <button id="settingsBtn" class="menu-item">
+                    <span class="menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+                    </svg></span>
+                    <span class="menu-label">Настройки</span>
+                </button>
                 <button id="syncBtn" class="menu-item">
                     <span class="menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -148,13 +164,6 @@
                         </svg></span>
                     <span class="menu-label">Синхронизировать</span>
                     <span class="menu-hint">F5</span>
-                </button>
-                <button id="menuSyncFull" class="menu-item">
-                    <span class="menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5" />
-                        </svg></span>
-                    <span class="menu-label">Полная пересинхронизация</span>
                 </button>
                 <button id="menuLock" class="menu-item">
                     <span class="menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"
@@ -165,25 +174,7 @@
                     <span class="menu-label">Заблокировать</span>
                     <span class="menu-hint">Ctrl+L</span>
                 </button>
-                <button id="menuConnection" class="menu-item">
-                    <span class="menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
-                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
-                        </svg></span>
-                    <span class="menu-label">Подключение...</span>
-                </button>
                 <div class="menu-sep"></div>
-                <button id="menuFullWidth" class="menu-item">
-                    <span class="menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path
-                                d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3">
-                            </path>
-                        </svg></span>
-                    <span class="menu-label">На всю ширину</span>
-                    <span class="switch" id="fwSwitch"></span>
-                </button>
                 <button id="menuCapture" class="menu-item">
                     <span class="menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -196,14 +187,6 @@
                     <span class="menu-label">Защита от захвата экрана</span>
                     <span class="switch" id="capSwitch"></span>
                 </button>
-                <button id="menuAbout" class="menu-item">
-                    <span class="menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="12" cy="12" r="10"></circle>
-                            <path d="M12 16v-4M12 8h.01"></path>
-                        </svg></span>
-                    <span class="menu-label">О программе</span>
-                </button>
                 <div class="menu-sep"></div>
                 <button id="menuReset" class="menu-item danger">
                     <span class="menu-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"
@@ -214,6 +197,181 @@
                         </svg></span>
                     <span class="menu-label">Очистить локальную базу...</span>
                 </button>
+            </div>
+
+            <div id="settingsScreen" class="settings-overlay" style="display:none">
+                <div class="settings-container">
+                    <div class="settings-sidebar">
+                        <div class="settings-header">
+                            <h2>Настройки</h2>
+                            <button id="settingsClose" class="btn-mini" title="Закрыть">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 6L6 18M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <nav class="settings-nav">
+                            <button class="settings-nav-item active" data-tab="sync">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 12a9 9 0 11-2.64-6.36M21 3v6h-6"/>
+                                </svg>
+                                Синхронизация
+                            </button>
+                            <button class="settings-nav-item" data-tab="connection">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+                                </svg>
+                                Подключение
+                            </button>
+                            <button class="settings-nav-item" data-tab="appearance">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
+                                </svg>
+                                Внешний вид
+                            </button>
+                            <button class="settings-nav-item" data-tab="security">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+                                </svg>
+                                Безопасность
+                            </button>
+                            <button class="settings-nav-item" data-tab="updates">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+                                </svg>
+                                Обновления
+                            </button>
+                            <button class="settings-nav-item" data-tab="about">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none"stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <path d="M12 16v-4M12 8h.01"></path>
+                                </svg>
+                                О программе
+                            </button>
+                            <button class="settings-nav-item danger" data-tab="danger">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                                    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                                </svg>
+                                Опасная зона
+                            </button>
+                        </nav>
+                    </div>
+                    <div class="settings-content">
+                        <div class="settings-tab active" id="tab-sync">
+                            <h3>Синхронизация</h3>
+                            <div class="settings-section">
+                                <h4>Статус</h4>
+                                <div class="settings-info">
+                                    <span id="settingsSyncStatus">Не синхронизировано</span>
+                                    <span id="settingsSyncTime"></span>
+                                </div>
+                                <button id="settingsSyncNow" class="btn-primary">Синхронизировать сейчас</button>
+                            </div>
+                            <div class="settings-section">
+                                <h4>Полная пересинхронизация</h4>
+                                <p class="settings-description">Загружает все документы заново. Используйте при проблемах с данными.</p>
+                                <button id="settingsSyncFull" class="btn-secondary">Полная пересинхронизация</button>
+                            </div>
+                        </div>
+                        <div class="settings-tab" id="tab-connection">
+                            <h3>Подключение</h3>
+                            <div class="settings-section">
+                                <div class="field">
+                                    <label for="settingsConnUrl">URL сервера</label>
+                                    <input type="text" id="settingsConnUrl" placeholder="https://outline.example.com">
+                                </div>
+                                <div class="field">
+                                    <label for="settingsConnKey">API-ключ</label>
+                                    <input type="password" id="settingsConnKey" placeholder="ol_api_...">
+                                </div>
+                                <div id="settingsConnError" class="setup-error"></div>
+                                <button id="settingsConnSave" class="btn-primary">Сохранить</button>
+                            </div>
+                        </div>
+                        <div class="settings-tab" id="tab-appearance">
+                            <h3>Внешний вид</h3>
+                            <div class="settings-section">
+                                <h4>Тема</h4>
+                                <div class="settings-toggle">
+                                    <span>Тёмная тема</span>
+                                    <button id="settingsThemeToggle" class="toggle-btn">
+                                        <span class="toggle-thumb"></span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="settings-section">
+                                <h4>Масштаб текста</h4>
+                                <div class="settings-zoom">
+                                    <button id="settingsZoomOut" class="btn-icon">−</button>
+                                    <span id="settingsZoomValue">100%</span>
+                                    <button id="settingsZoomIn" class="btn-icon">+</button>
+                                    <button id="settingsZoomReset" class="btn-secondary">Сбросить</button>
+                                </div>
+                            </div>
+                            <div class="settings-section">
+                                <h4>Отображение</h4>
+                                <div class="settings-toggle">
+                                    <span>Документы на всю ширину</span>
+                                    <button id="settingsFullWidth" class="toggle-btn">
+                                        <span class="toggle-thumb"></span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="settings-tab" id="tab-security">
+                            <h3>Безопасность</h3>
+                            <div class="settings-section">
+                                <h4>Защита от захвата экрана</h4>
+                                <p class="settings-description">Скрывает окно от программ записи экрана (Windows 10 2004+)</p>
+                                <div class="settings-toggle">
+                                    <span>Включить защиту</span>
+                                    <button id="settingsCaptureToggle" class="toggle-btn">
+                                        <span class="toggle-thumb"></span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="settings-section">
+                                <h4>Блокировка приложения</h4>
+                                <button id="settingsLock" class="btn-secondary">Заблокировать сейчас</button>
+                            </div>
+                        </div>
+                        <div class="settings-tab" id="tab-updates">
+                            <h3>Обновления</h3>
+                            <div class="settings-section">
+                                <h4>Текущая версия</h4>
+                                <p id="settingsCurrentVersion">v1.0.0</p>
+                                <button id="settingsCheckUpdate" class="btn-primary">Проверить обновления</button>
+                                <div id="settingsUpdateStatus" class="settings-info" style="margin-top: 12px;"></div>
+                            </div>
+                        </div>
+                        <div class="settings-tab" id="tab-about">
+                            <h3>О программе</h3>
+                            <div class="settings-section">
+                                <div class="about-hero">
+                                    <div class="about-logo">
+                                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                                            <path d="M2 4h6a4 4 0 014 4v12a3 3 0 00-3-3H2z"/>
+                                            <path d="M22 4h-6a4 4 0 00-4 4v12a3 3 0 013-3h7z"/>
+                                        </svg>
+                                    </div>
+                                    <h2 class="about-title">Outline <span>Reader</span></h2>
+                                    <span class="about-badge" id="settingsAboutVersion">dev</span>
+                                </div>
+                                <p class="about-description">Локальный ридер для Outline Wiki: дерево коллекций, полный текстовый поиск и копия базы на диске.</p>
+                                <a id="settingsAboutRepo" class="about-repo">github.com/crazykivi/outline-reader</a>
+                            </div>
+                        </div>
+                        <div class="settings-tab" id="tab-danger">
+                            <h3>Опасная зона</h3>
+                            <div class="settings-section danger">
+                                <h4>Очистить локальную базу</h4>
+                                <p class="settings-description">Удалит локальную копию документов, настройки и состояние синхронизации. Документы в Outline не пострадают.</p>
+                                <button id="settingsReset" class="btn-danger">Очистить базу</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div class="content">

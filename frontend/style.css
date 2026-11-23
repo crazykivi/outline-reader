@@ -581,8 +581,76 @@ body.maximised .ic-restore { display: block; }
 .side-icon-btn:disabled { opacity: .35; cursor: default; }
 .menu-side {
     top: auto; right: auto; bottom: 56px; left: 8px;
-    width: clamp(120px, calc(var(--side-w) - 34px), 320px);
+    width: clamp(230px, calc(var(--side-w) - 34px), 320px);
     max-height: calc(100vh - 130px); overflow-y: auto;
     animation: popUp .12s ease; min-width: 0;
 }
 @keyframes popUp { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.settings-overlay {
+    position: fixed; inset: 0; z-index: 600;
+    background: rgba(0, 0, 0, .6); backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+}
+.settings-container {
+    width: 90%; max-width: 900px; height: 80vh;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    display: flex; overflow: hidden; box-shadow: 0 24px 64px var(--shadow);
+}
+.settings-sidebar {
+    width: 240px; flex-shrink: 0;
+    background: var(--panel-2); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+}
+.settings-header {
+    padding: 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+}
+.settings-header h2 { font-size: 18px; font-weight: 700; }
+.settings-nav { flex: 1; overflow-y: auto; padding: 12px 0; }
+.settings-nav-item {
+    width: 100%; padding: 12px 20px; border: 0; background: none;
+    display: flex; align-items: center; gap: 10px;
+    color: var(--muted); font-size: 14px; cursor: pointer; text-align: left;
+    transition: background .15s, color .15s;
+}
+.settings-nav-item:hover { background: var(--border); color: var(--text); }
+.settings-nav-item.active { background: var(--accent-soft); color: var(--accent); }
+.settings-nav-item.danger { color: var(--danger); }
+.settings-nav-item.danger:hover { background: var(--danger-soft); }
+.settings-content {
+    flex: 1; overflow-y: auto; padding: 32px 40px;
+}
+.settings-tab { display: none; }
+.settings-tab.active { display: block; }
+.settings-tab h3 { font-size: 24px; font-weight: 700; margin-bottom: 24px; }
+.settings-section {
+    margin-bottom: 32px; padding-bottom: 24px; border-bottom: 1px solid var(--border);
+}
+.settings-section:last-child { border-bottom: 0; }
+.settings-section.danger { border-color: var(--danger); }
+.settings-section h4 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+.settings-description { font-size: 13px; color: var(--muted); margin-bottom: 12px; line-height: 1.5; }
+.settings-info { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+.settings-toggle {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.toggle-btn {
+    width: 44px; height: 24px; border-radius: 12px; border: 0;
+    background: var(--border); cursor: pointer; position: relative;
+    transition: background .2s;
+}
+.toggle-btn.active { background: var(--accent); }
+.toggle-thumb {
+    position: absolute; top: 2px; left: 2px;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: white; transition: left .2s;
+}
+.toggle-btn.active .toggle-thumb { left: 22px; }
+.settings-zoom {
+    display: flex; align-items: center; gap: 12px;
+}
+.settings-zoom .btn-icon { width: 32px; height: 32px; }
+.settings-zoom #settingsZoomValue {
+    min-width: 48px; text-align: center; font-size: 14px; font-weight: 600;
+}
