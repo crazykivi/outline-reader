@@ -98,7 +98,6 @@ func (a *App) init() error {
 	} else {
 		a.dataDir = filepath.Dir(a.dbPath)
 	}
-	a.cleanupLeftovers()
 	log.Printf("[APP] база заблокирована, нужен мастер-пароль (portable=%v)", a.portable)
 	return nil
 }
@@ -114,6 +113,7 @@ func (a *App) openDB(keyHex string) error {
 	if err != nil {
 		return err
 	}
+	a.cleanupPlaintextBackups()
 	a.attachSession(db)
 	s, err := db.GetSettings()
 	if err != nil {
@@ -143,18 +143,17 @@ func (a *App) openDB(keyHex string) error {
 	return nil
 }
 
-func (a *App) cleanupLeftovers() {
+func (a *App) cleanupPlaintextBackups() {
 	plain := a.dbPath + ".plain"
 	if _, err := os.Stat(plain); err != nil {
 		return
 	}
-	suffixes := []string{"", "-wal", "-shm", "-journal"}
-	if dbFileExists(a.dbPath) && !storage.IsPlaintextDB(a.dbPath) {
-		for _, suf := range suffixes {
-			_ = os.Remove(plain + suf)
+	for _, suf := range []string{"", "-wal", "-shm", "-journal"} {
+		if err := os.Remove(plain + suf); err != nil && !os.IsNotExist(err) {
+			log.Printf("[DB] не удалось удалить резервный plaintext-файл %s: %v", plain+suf, err)
 		}
-		log.Printf("[DB] удалена plaintext-копия после завершённой миграции")
 	}
+	log.Printf("[DB] удалена резервная plaintext-копия после успешного открытия зашифрованной базы")
 }
 
 func (a *App) guardPath() string { return filepath.Join(a.dataDir, "unlock.guard") }
