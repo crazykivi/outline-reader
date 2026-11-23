@@ -18,6 +18,7 @@ let currentDocUpdated = "";
 let searchTimer = null;
 let toastTimer = null, noticeTimer = null;
 let toastAction = null;
+let toastDuration = 4000;
 let updateCheckStarted = false;
 const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "expanded", "tocOpen", "captureProtect"];
 let prefsReady = false;
@@ -207,7 +208,7 @@ function bindUI() {
     const toast = $("toast");
     toast.addEventListener("mouseenter", () => clearTimeout(toastTimer));
     toast.addEventListener("mouseleave", () => {
-        if (toastAction) scheduleToastHide(8000);
+        if (toast.style.display !== "none") scheduleToastHide(toastDuration);
     });
     toast.addEventListener("click", () => {
         if (!toastAction) return;
@@ -588,7 +589,7 @@ function clearMainUI() {
     uiHideNow($("connModal"));
     uiHideNow($("resetModal"));
     uiHideNow($("aboutModal"));
-    clearTimeout(toastTimer); uiHideNow($("toast"));
+    clearTimeout(toastTimer); toastAction = null; $("toast").classList.remove("toast-actionable"); uiHideNow($("toast"));
     clearTimeout(noticeTimer); uiHideNow($("updateNotification"));
     $("docViewer").style.display = "none";
     $("welcomeScreen").style.display = "none";
@@ -1799,11 +1800,12 @@ function showToast(title, msg, isErr, options = {}) {
     $("toastTitle").textContent = title;
     $("toastMsg").textContent = msg;
     toastAction = typeof options.onClick === "function" ? options.onClick : null;
+    toastDuration = options.duration || 4000;
     t.classList.toggle("toast-actionable", !!toastAction);
     t.title = toastAction ? "Открыть настройки обновлений" : "";
     uiShow(t, "block");
     clearTimeout(toastTimer);
-    if (!t.matches(":hover")) scheduleToastHide(options.duration || 4000);
+    if (!t.matches(":hover")) scheduleToastHide(toastDuration);
 }
 
 function scheduleToastHide(duration) {
