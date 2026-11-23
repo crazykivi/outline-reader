@@ -1976,6 +1976,7 @@ async function checkForUpdates() {
     btn.disabled = true;
     btn.textContent = "Проверка...";
     status.textContent = "";
+    status.className = "settings-note";
     try {
         const update = await go().CheckForUpdate();
         if (update && update.available) {
@@ -2085,9 +2086,11 @@ async function installUpdate(update) {
         renderUpdateProgress({state: "restarting", version: update.version});
     } catch (err) {
         renderUpdateProgress({state: "error", message: String(err)});
-        if (installButton) {
-            installButton.disabled = false;
-            installButton.textContent = "Повторить установку";
-        }
+        const retry = document.createElement("button");
+        retry.className = "btn-primary btn-sm";
+        retry.style.marginTop = "8px";
+        retry.textContent = "Повторить установку";
+        retry.addEventListener("click", () => installUpdate(update));
+        status.appendChild(retry);
     }
 }
