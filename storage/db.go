@@ -227,7 +227,7 @@ func MigratePlaintext(dbPath, keyHex string) error {
 			continue
 		}
 		if statErr != nil {
-			return restorePlaintextFiles(dbPath, moved, fmt.Errorf("проверка файла %s: %w", dbPath+suf, statErr))
+			return restorePlaintextFiles(dbPath, moved, false, fmt.Errorf("проверка файла %s: %w", dbPath+suf, statErr))
 		}
 		if err := os.Rename(dbPath+suf, dbPath+".plain"+suf); err != nil {
 			return restorePlaintextFiles(dbPath, moved, fmt.Errorf("сохранение исходного файла %s: %w", dbPath+suf, err))
@@ -241,7 +241,7 @@ func MigratePlaintext(dbPath, keyHex string) error {
 				cause = errors.Join(cause, fmt.Errorf("закрытие новой базы: %w", closeErr))
 			}
 		}
-		return restorePlaintextFiles(dbPath, moved, cause)
+		return restorePlaintextFiles(dbPath, moved, true, cause)
 	}
 
 	nd, err := NewDB(dbPath, keyHex)
@@ -281,8 +281,12 @@ func MigratePlaintext(dbPath, keyHex string) error {
 	return nil
 }
 
-func restorePlaintextFiles(dbPath string, moved []string, cause error) error {
-	for _, suf := range moved {
+func restorePlaintextFiles(dbPath string, moved []string, removeUnmoved bool, cause error) error {
+	remove := moved
+	if removeUnmoved {
+		remove = []string{"", "-wal", "-shm", "-journal"}
+	}
+	for _, suf := range remove {
 		if err := os.Remove(dbPath + suf); err != nil && !os.IsNotExist(err) {
 			cause = errors.Join(cause, fmt.Errorf("удаление незавершённого файла %s: %w", dbPath+suf, err))
 		}
