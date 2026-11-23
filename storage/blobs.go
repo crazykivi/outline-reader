@@ -3,6 +3,7 @@ package storage
 import (
 	"time"
 
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -36,5 +37,9 @@ func (d *DB) DeleteBlobsNotIn(ids []string) error {
 	if len(ids) == 0 {
 		return d.db.Where("1 = 1").Delete(&Blob{}).Error
 	}
-	return d.db.Where("id NOT IN ?", ids).Delete(&Blob{}).Error
+	return d.db.Transaction(func(tx *gorm.DB) error {
+		return withTempIDs(tx, "keep_blobs", ids, func(tbl string) error {
+			return tx.Exec("DELETE FROM blobs WHERE id NOT IN (SELECT id FROM " + tbl + ")").Error
+		})
+	})
 }

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"slices"
 	"time"
 
 	"gorm.io/gorm"
@@ -25,7 +26,9 @@ func (d *DB) ApplySync(cols []Collection, docs, meta []Document, deleteIDs []str
 			if err := tx.Where("1 = 1").Delete(&Collection{}).Error; err != nil {
 				return err
 			}
-		} else if err := tx.Where("outline_id NOT IN ?", colIDs).Delete(&Collection{}).Error; err != nil {
+		} else if err := withTempIDs(tx, "keep_collections", colIDs, func(tbl string) error {
+			return tx.Exec("DELETE FROM collections WHERE outline_id NOT IN (SELECT id FROM " + tbl + ")").Error
+		}); err != nil {
 			return err
 		}
 		if len(docs) > 0 {
@@ -44,8 +47,8 @@ func (d *DB) ApplySync(cols []Collection, docs, meta []Document, deleteIDs []str
 				return err
 			}
 		}
-		if len(deleteIDs) > 0 {
-			if err := tx.Where("outline_id IN ?", deleteIDs).Delete(&Document{}).Error; err != nil {
+		for batch := range slices.Chunk(deleteIDs, sqlInChunk) {
+			if err := tx.Where("outline_id IN ?", batch).Delete(&Document{}).Error; err != nil {
 				return err
 			}
 		}
@@ -62,9 +65,5 @@ func (d *DB) GetLastFullSync() time.Time {
 }
 
 func (d *DB) SetLastFullSync(t time.Time) error {
-	var s SyncState
-	_ = d.db.First(&s, 1).Error
-	s.ID = 1
-	s.LastFull = t
-	return d.db.Save(&s).Error
+	return d.updateSyncState(map[string]any{"last_full": t}, SyncState{LastFull: t})
 }

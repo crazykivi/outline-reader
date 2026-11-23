@@ -89,13 +89,14 @@ func NewDB(dbPath, keyHex string) (*DB, error) {
 	}
 	sqlDB.SetMaxOpenConns(1)
 	_ = db.Exec("PRAGMA temp_store = memory").Error
+	_ = db.Exec("PRAGMA busy_timeout = 5000").Error
 	var n int64
 	if err := db.Raw("SELECT count(*) FROM sqlite_master").Scan(&n).Error; err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("неверный ключ или база повреждена: %w", err)
 	}
 	if err := db.AutoMigrate(&Document{}, &Collection{}, &Settings{}, &SyncState{},
-		&Blob{}, &Recent{}, &Favorite{}); err != nil {
+		&Blob{}, &Recent{}, &Favorite{}, &Pref{}); err != nil {
 		return nil, err
 	}
 	d := &DB{db: db}
@@ -235,12 +236,6 @@ func (d *DB) GetCollections() ([]Collection, error) {
 	return out, err
 }
 
-func (d *DB) GetDocuments() ([]Document, error) {
-	var out []Document
-	err := d.db.Order("position").Find(&out).Error
-	return out, err
-}
-
 func (d *DB) GetDocumentsMeta() ([]Document, error) {
 	var out []Document
 	err := d.db.Select("id, outline_id, collection_id, parent_id, url_id, position, title, updated_at").
@@ -293,37 +288,35 @@ func (d *DB) SearchDocuments(query string) ([]Document, error) {
 	if query == "" {
 		return []Document{}, nil
 	}
-	if d.fts {
-		var out []Document
-		err := d.db.Table("documents").
-			Select("documents.*").
-			Joins("JOIN docs_fts ON docs_fts.rowid = documents.id").
-			Where("docs_fts MATCH ?", ftsQuery(query)).
-			Order("docs_fts.rank").
-			Limit(50).
-			Find(&out).Error
-		if err == nil && len(out) > 0 {
-			return out, nil
-		}
-		if err != nil {
-			log.Printf("[DB] fts search: %v", err)
-		}
+	if !d.fts {
+		return d.searchLike(query)
 	}
-	var all []Document
-	if err := d.db.Order("position").Find(&all).Error; err != nil {
-		return nil, err
-	}
-	q := strings.ToLower(query)
 	var out []Document
-	for _, doc := range all {
-		if strings.Contains(strings.ToLower(doc.Title), q) || strings.Contains(strings.ToLower(doc.Text), q) {
-			out = append(out, doc)
-			if len(out) >= 50 {
-				break
-			}
-		}
+	err := d.db.Table("documents").
+		Select("documents.*").
+		Joins("JOIN docs_fts ON docs_fts.rowid = documents.id").
+		Where("docs_fts MATCH ?", ftsQuery(query)).
+		Order("docs_fts.rank").
+		Limit(50).
+		Find(&out).Error
+	if err != nil {
+		log.Printf("[DB] fts search: %v", err)
+		return d.searchLike(query)
 	}
 	return out, nil
+}
+
+func likePattern(q string) string {
+	esc := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return "%" + esc.Replace(strings.ToLower(q)) + "%"
+}
+
+func (d *DB) searchLike(query string) ([]Document, error) {
+	p := likePattern(query)
+	var out []Document
+	err := d.db.Where(`lower(title) LIKE ? ESCAPE '\' OR lower(text) LIKE ? ESCAPE '\'`, p, p).
+		Order("position").Limit(50).Find(&out).Error
+	return out, err
 }
 
 func (d *DB) SaveSettings(s *Settings) error {
@@ -351,10 +344,6 @@ func (d *DB) GetLastSyncTime() time.Time {
 	return s.LastSync
 }
 
-func (d *DB) SetLastSyncTime(t time.Time) error {
-	return d.db.Save(&SyncState{ID: 1, LastSync: t}).Error
-}
-
 func (d *DB) GetSyncState() SyncState {
 	var s SyncState
 	_ = d.db.First(&s, 1).Error
@@ -362,7 +351,23 @@ func (d *DB) GetSyncState() SyncState {
 }
 
 func (d *DB) SetSyncState(t time.Time, added, updated, deleted int) error {
-	return d.db.Save(&SyncState{ID: 1, LastSync: t, Added: added, Updated: updated, Deleted: deleted}).Error
+	return d.updateSyncState(map[string]any{
+		"last_sync": t, "added": added, "updated": updated, "deleted": deleted,
+	}, SyncState{LastSync: t, Added: added, Updated: updated, Deleted: deleted})
+}
+
+func (d *DB) updateSyncState(cols map[string]any, seed SyncState) error {
+	return d.db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&SyncState{}).Where("id = ?", 1).Updates(cols)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected > 0 {
+			return nil
+		}
+		seed.ID = 1
+		return tx.Create(&seed).Error
+	})
 }
 
 func (d *DB) Close() error {
