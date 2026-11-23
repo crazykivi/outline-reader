@@ -93,7 +93,7 @@ func main() {
 			UniqueId: uniqueID,
 			OnSecondInstanceLaunch: func(data options.SecondInstanceData) {
 				log.Println("[APP] second instance detected, focusing existing window")
-				if ctx := app.Context(); ctx != nil {
+				if ctx := app.appContext(); ctx != nil {
 					wailsruntime.WindowUnminimise(ctx)
 					wailsruntime.WindowShow(ctx)
 				}

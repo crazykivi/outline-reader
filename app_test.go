@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -17,7 +18,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"outline-reader/crypto"
 	"outline-reader/storage"
 )
 
@@ -229,7 +229,7 @@ func TestSetConnectionValidationAndPersistence(t *testing.T) {
 
 	raw, err := a.getDB().GetSettings()
 	require.NoError(t, err)
-	assert.Equal(t, "good", crypto.DecryptIfPossible(raw.APIKey))
+	assert.Equal(t, "good", raw.APIKey)
 }
 
 func TestSyncTreeSearchAndURLID(t *testing.T) {
@@ -370,7 +370,7 @@ func TestSettingsSurviveRestart(t *testing.T) {
 	assert.True(t, s.HasKey)
 	raw, err := b.getDB().GetSettings()
 	require.NoError(t, err)
-	assert.Equal(t, "good", crypto.DecryptIfPossible(raw.APIKey))
+	assert.Equal(t, "good", raw.APIKey)
 
 	tree, err := b.GetTree()
 	require.NoError(t, err)
@@ -679,7 +679,7 @@ func TestLockDuringSyncIsInstant(t *testing.T) {
 	case err := <-done:
 		require.Error(t, err)
 	case <-time.After(5 * time.Second):
-		t.Fatal("sync did not abort")
+		t.Fatal("sync did not finish")
 	}
 
 	st, err := a.StorageStatus()
@@ -714,4 +714,169 @@ func TestNotifyActivityPreventsIdleLock(t *testing.T) {
 	st, err := a.StorageStatus()
 	require.NoError(t, err)
 	assert.False(t, st.Locked)
+}
+
+func newUnlockedApp(t *testing.T) *App {
+	t.Helper()
+	a := NewApp()
+	a.dbPath = filepath.Join(t.TempDir(), "cache.db")
+	require.NoError(t, a.UnlockDB("test-master-pass"))
+	t.Cleanup(func() {
+		if db := a.getDB(); db != nil {
+			_ = db.Close()
+		}
+	})
+	return a
+}
+
+func TestIncrementalSyncKeepsFullWatermark(t *testing.T) {
+	a := newUnlockedApp(t)
+	db := a.getDB()
+	full := time.Now().UTC().Truncate(time.Second)
+	require.NoError(t, db.SetLastFullSync(full))
+
+	for i := 0; i < 3; i++ {
+		require.NoError(t, db.SetSyncState(full.Add(time.Duration(i+1)*time.Minute), 0, 0, 0))
+		assert.WithinDuration(t, full, db.GetLastFullSync(), 2*time.Second)
+		assert.False(t, a.needFullSync())
+	}
+}
+
+func TestPrefsPersistAcrossLock(t *testing.T) {
+	a := newUnlockedApp(t)
+	require.NoError(t, a.SetPrefs(map[string]string{
+		"theme": "light", "sideWidth": "320", "expanded": `["d1"]`, "bogus": "x",
+	}))
+	require.NoError(t, a.LockApp())
+	require.NoError(t, a.UnlockDB("test-master-pass"))
+
+	p, err := a.GetPrefs()
+	require.NoError(t, err)
+	assert.Equal(t, "light", p["theme"])
+	assert.Equal(t, "320", p["sideWidth"])
+	assert.Equal(t, `["d1"]`, p["expanded"])
+	assert.NotContains(t, p, "bogus")
+
+	require.NoError(t, a.SetPrefs(map[string]string{"theme": "dark"}))
+	p, err = a.GetPrefs()
+	require.NoError(t, err)
+	assert.Equal(t, "dark", p["theme"])
+	assert.Equal(t, "320", p["sideWidth"])
+}
+
+func TestLegacyPlaintextCacheIsEncryptedInPlace(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.db")
+	db, err := storage.NewDB(path, "")
+	require.NoError(t, err)
+	require.NoError(t, db.SaveSettings(&storage.Settings{APIURL: "https://old.example", APIKey: "legacy-key"}))
+	require.NoError(t, db.Close())
+	require.True(t, storage.IsPlaintextDB(path))
+
+	a := NewApp()
+	a.dbPath = path
+	t.Cleanup(func() {
+		if d := a.getDB(); d != nil {
+			_ = d.Close()
+		}
+	})
+
+	st, err := a.StorageStatus()
+	require.NoError(t, err)
+	assert.True(t, st.Legacy)
+
+	require.NoError(t, a.UnlockDB("brand-new-master"))
+	assert.False(t, storage.IsPlaintextDB(path))
+
+	s, err := a.GetSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "https://old.example", s.APIURL)
+	assert.True(t, s.HasKey)
+
+	st, err = a.StorageStatus()
+	require.NoError(t, err)
+	assert.False(t, st.Legacy)
+}
+
+func TestUnreadableStoredKeyIsSurfaced(t *testing.T) {
+	a := newUnlockedApp(t)
+	require.NoError(t, a.getDB().SaveSettings(&storage.Settings{
+		APIURL: "https://old.example", APIKey: "enc:AAECAwQ=",
+	}))
+
+	require.NoError(t, a.LockApp())
+	require.NoError(t, a.UnlockDB("test-master-pass"))
+
+	s, err := a.GetSettings()
+	require.NoError(t, err)
+	assert.False(t, s.HasKey)
+	assert.True(t, s.KeyLost)
+	assert.Nil(t, a.getClient())
+
+	raw, err := a.getDB().GetSettings()
+	require.NoError(t, err)
+	assert.Empty(t, raw.APIKey)
+}
+
+func TestContextIsNotExposedToBindings(t *testing.T) {
+	_, ok := reflect.TypeOf(NewApp()).MethodByName("Context")
+	assert.False(t, ok)
+}
+
+func TestFullSyncWatermarkEndToEnd(t *testing.T) {
+	_, srv := newFakeOutline(t)
+	a := newTestApp(t)
+	require.NoError(t, a.SetConnection(srv.URL, "good"))
+
+	_, err := a.SyncDocumentsFull()
+	require.NoError(t, err)
+	full := a.getDB().GetLastFullSync()
+	require.False(t, full.IsZero())
+
+	for i := 0; i < 3; i++ {
+		_, err := a.SyncDocuments()
+		require.NoError(t, err)
+		assert.WithinDuration(t, full, a.getDB().GetLastFullSync(), 2*time.Second)
+		assert.False(t, a.needFullSync())
+	}
+}
+
+func TestLockUnlockWhileSyncInFlight(t *testing.T) {
+	f, srv := newFakeOutline(t)
+	a := newTestApp(t)
+	require.NoError(t, a.SetConnection(srv.URL, "good"))
+
+	block := make(chan struct{})
+	f.mu.Lock()
+	f.block = block
+	f.mu.Unlock()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := a.SyncDocuments()
+		done <- err
+	}()
+
+	select {
+	case <-f.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("sync did not reach documents.list")
+	}
+
+	require.NoError(t, a.LockApp())
+	require.NoError(t, a.UnlockDB("test-master-pass"))
+	close(block)
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("sync did not finish")
+	}
+
+	res, err := a.SyncDocuments()
+	require.NoError(t, err)
+	assert.Equal(t, 2, res.Total)
+
+	doc, err := a.GetDocument("d1")
+	require.NoError(t, err)
+	assert.Equal(t, "Root", doc.Title)
 }

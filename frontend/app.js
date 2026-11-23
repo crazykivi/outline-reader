@@ -17,9 +17,75 @@ let currentOID = null;
 let currentDocUpdated = "";
 let searchTimer = null;
 let toastTimer = null, noticeTimer = null;
-let fullWidth = localStorage.getItem("or.fullWidth") === "1";
-let tocOpen = localStorage.getItem("or.tocOpen") === "1";
-let fontScale = parseFloat(localStorage.getItem("or.fontScale") || "1");
+const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "expanded", "tocOpen", "captureProtect"];
+let prefsReady = false;
+let prefsTimer = null;
+const prefsDirty = new Map();
+
+function prefGet(key, fallback) {
+    const v = localStorage.getItem("or." + key);
+    if (v !== null) return v;
+    return fallback === undefined ? null : fallback;
+}
+
+function prefSet(key, value) {
+    const v = String(value);
+    localStorage.setItem("or." + key, v);
+    if (!prefsReady) return;
+    prefsDirty.set(key, v);
+    clearTimeout(prefsTimer);
+    prefsTimer = setTimeout(flushPrefs, 400);
+}
+
+async function flushPrefs() {
+    clearTimeout(prefsTimer);
+    if (!prefsReady || prefsDirty.size === 0) return;
+    const batch = Object.fromEntries(prefsDirty);
+    prefsDirty.clear();
+    try {
+        await go().SetPrefs(batch);
+    } catch (err) {
+        console.warn("[UI] prefs save:", err);
+    }
+}
+
+async function loadPrefs() {
+    prefsReady = false;
+    let remote = {};
+    try {
+        remote = (await go().GetPrefs()) || {};
+    } catch (err) {
+        console.warn("[UI] prefs load:", err);
+    }
+    PREF_KEYS.forEach((k) => {
+        if (typeof remote[k] === "string") localStorage.setItem("or." + k, remote[k]);
+    });
+    applyTheme(prefGet("theme", "dark"));
+    applyFullWidth(prefGet("fullWidth") === "1");
+    let scale = parseFloat(prefGet("fontScale", "1"));
+    if (!(scale >= 0.7 && scale <= 2.0)) scale = 1;
+    applyFontScale(scale);
+    tocOpen = prefGet("tocOpen") === "1";
+    try { expanded = new Set(JSON.parse(prefGet("expanded", "[]"))); } catch (e) { expanded = new Set(); }
+    const w = parseInt(prefGet("sideWidth", "300"), 10);
+    const sidebar = document.querySelector(".sidebar");
+    if (sidebar && w >= 220 && w <= 480) {
+        sidebar.style.width = w + "px";
+        setSideWidth(w);
+    }
+    prefsReady = true;
+    if (Object.keys(remote).length === 0) {
+        PREF_KEYS.forEach((k) => {
+            const v = localStorage.getItem("or." + k);
+            if (v !== null) prefsDirty.set(k, v);
+        });
+        await flushPrefs();
+    }
+}
+
+let fullWidth = prefGet("fullWidth") === "1";
+let tocOpen = prefGet("tocOpen") === "1";
+let fontScale = parseFloat(prefGet("fontScale", "1"));
 let lastTreeClick = { oid: null, time: 0 };
 let currentDocUrl = "";
 let lockHasDB = false, lockPortable = false, lockLegacy = false;
@@ -44,11 +110,11 @@ const find = {
 };
 const FIND_LIMIT = 10000;
 
-try { expanded = new Set(JSON.parse(localStorage.getItem("or.expanded") || "[]")); } catch (e) { }
+try { expanded = new Set(JSON.parse(prefGet("expanded", "[]"))); } catch (e) { }
 if (!(fontScale >= 0.7 && fontScale <= 2.0)) fontScale = 1;
 
 document.addEventListener("DOMContentLoaded", async () => {
-    applyTheme(localStorage.getItem("or.theme") || "dark");
+    applyTheme(prefGet("theme", "dark"));
     applyFullWidth(fullWidth);
     applyFontScale(fontScale);
     bindUI();
@@ -390,16 +456,16 @@ async function bootstrap(autoUnlock) {
         lockPortable = st.portable;
         lockLegacy = st.legacy;
         const creating = !st.hasDB;
-        const needPass = !st.legacy;
+        const needPass = true;
         $("lockSubtitle").textContent = st.legacy
-            ? "База старого формата (без мастер-пароля). Очистите её и создайте заново — документы снова синхронизируются с Outline."
+            ? "Кэш старого формата (без мастер-пароля). Задайте мастер-пароль — документы будут зашифрованы на месте, без повторной синхронизации."
             : creating
                 ? "Придумайте мастер-пароль (минимум 8 символов). Сменить его можно будет только очистив базу."
                 : "Введите мастер-пароль";
         $("lockPass").style.display = needPass ? "block" : "none";
-        $("lockPass2").style.display = (!st.legacy && creating) ? "block" : "none";
-        $("lockBtn").textContent = st.legacy ? "Очистить и создать заново" : creating ? "Создать базу" : "Открыть";
-        $("lockReset").style.display = (!st.legacy && !creating) ? "block" : "none";
+        $("lockPass2").style.display = (creating || st.legacy) ? "block" : "none";
+        $("lockBtn").textContent = st.legacy ? "Зашифровать и открыть" : creating ? "Создать базу" : "Открыть";
+        $("lockReset").style.display = creating ? "none" : "block";
         $("lockError").textContent = "";
         $("setupScreen").style.display = "none";
         $("mainScreen").style.display = "none";
@@ -414,31 +480,22 @@ async function bootstrap(autoUnlock) {
     if (s && s.apiURL && s.hasKey) {
         cachedApiURL = s.apiURL;
         $("apiUrl").value = s.apiURL;
-        enterMain();
+        await enterMain();
     } else {
+            $("setupError").textContent = s && s.keyLost
+                ? "Сохранённый API-ключ больше недоступен (защита Windows DPAPI). Введите ключ заново."
+                : "";
+            if (s && s.apiURL) $("apiUrl").value = s.apiURL;
         $("setupScreen").style.display = "flex";
     }
 }
 
 async function unlockDB() {
-    if (lockLegacy) {
-        const btn = $("lockBtn");
-        btn.disabled = true;
-        try {
-            await go().ResetApp();
-            await bootstrap(true);
-        } catch (err) {
-            $("lockError").textContent = String(err);
-        } finally {
-            btn.disabled = false;
-        }
-        return;
-    }
     if (guardLeft > 0) return;
     const passVisible = $("lockPass").style.display !== "none";
     const pass = passVisible ? $("lockPass").value : "";
     $("lockError").textContent = "";
-    if (!lockHasDB && pass !== $("lockPass2").value) {
+    if ((!lockHasDB || lockLegacy) && pass !== $("lockPass2").value) {
         $("lockError").textContent = "Пароли не совпадают";
         return;
     }
@@ -497,6 +554,9 @@ async function resetFromLock() {
 }
 
 function clearMainUI() {
+    prefsReady = false;
+    prefsDirty.clear();
+    clearTimeout(prefsTimer);
     currentOID = null;
     currentDocUpdated = "";
     currentDocUrl = "";
@@ -524,6 +584,7 @@ function clearMainUI() {
 }
 
 async function lockNow() {
+    await flushPrefs();
     if ($("mainScreen").style.display === "none") return;
     try { await go().LockApp(); } catch (e) { }
     clearMainUI();
@@ -546,7 +607,8 @@ function updateMaxState() {
 
 /* ---------- Экраны / подключение ---------- */
 
-function enterMain() {
+async function enterMain() {
+    await loadPrefs();
     $("setupScreen").style.display = "none";
     $("lockScreen").style.display = "none";
     $("mainScreen").style.display = "flex";
@@ -704,7 +766,7 @@ function renderCaptureState() {
 }
 
 async function initCapture() {
-    const saved = localStorage.getItem("or.captureProtect");
+    const saved = prefGet("captureProtect");
     const on = saved === null ? isPortable : saved === "1";
     if (typeof go().SetCaptureProtection !== "function") {
         captureProtect = false;
@@ -732,7 +794,7 @@ async function toggleCapture() {
     try {
         const ok = await go().SetCaptureProtection(next);
         captureProtect = ok && next;
-        localStorage.setItem("or.captureProtect", captureProtect ? "1" : "0");
+        prefSet("captureProtect", captureProtect ? "1" : "0");
         showToast(captureProtect ? "Защита от захвата включена" : "Защита от захвата выключена",
             ok ? "Окно не видно программам записи экрана" : "Не удалось применить (Windows 10 2004+)", !ok);
     } catch (err) {
@@ -824,7 +886,7 @@ function pluralDocs(n) {
     return n + " документов";
 }
 
-function saveExpanded() { localStorage.setItem("or.expanded", JSON.stringify([...expanded])); }
+function saveExpanded() { prefSet("expanded", JSON.stringify([...expanded])); }
 
 function expandAncestors(oid) {
     let p = (index[oid] || {}).parent;
@@ -1323,7 +1385,7 @@ function renderTOC() {
 
 function applyTocOpen(v) {
     tocOpen = !!v;
-    localStorage.setItem("or.tocOpen", tocOpen ? "1" : "0");
+    prefSet("tocOpen", tocOpen ? "1" : "0");
     const hasItems = $("tocContent").children.length > 0;
     const show = tocOpen && hasItems;
     $("tocPanel").style.display = show ? "block" : "none";
@@ -1725,7 +1787,7 @@ function showToast(title, msg, isErr) {
 
 function applyTheme(t) {
     document.documentElement.dataset.theme = t;
-    localStorage.setItem("or.theme", t);
+    prefSet("theme", t);
     const btn = $("themeBtn");
     const icon = btn.querySelector(".menu-icon");
     if (icon) {
@@ -1738,7 +1800,7 @@ function applyTheme(t) {
 
 function applyFullWidth(v) {
     fullWidth = v;
-    localStorage.setItem("or.fullWidth", v ? "1" : "0");
+    prefSet("fullWidth", v ? "1" : "0");
     $("docViewer").classList.toggle("full-width", v);
     $("fwSwitch").classList.toggle("on", v);
 }
@@ -1746,7 +1808,7 @@ function applyFullWidth(v) {
 function applyFontScale(v) {
     fontScale = Math.round(v * 10) / 10;
     fontScale = Math.max(0.7, Math.min(2.0, fontScale));
-    localStorage.setItem("or.fontScale", String(fontScale));
+    prefSet("fontScale", String(fontScale));
     document.documentElement.style.setProperty("--font-scale", String(fontScale));
     updateZoomIndicator();
 }
@@ -1772,7 +1834,7 @@ function setSideWidth(w) {
 }
 function initResizer() {
     const sidebar = document.querySelector(".sidebar");
-    const saved = parseInt(localStorage.getItem("or.sideWidth") || "300", 10);
+    const saved = parseInt(prefGet("sideWidth", "300"), 10);
     if (saved >= 220 && saved <= 480) sidebar.style.width = saved + "px";
     setSideWidth(parseInt(sidebar.style.width, 10) || 300);
     let dragging = false;
@@ -1793,7 +1855,7 @@ function initResizer() {
         dragging = false;
         document.body.classList.remove("resizing");
         const w = parseInt(sidebar.style.width, 10) || 300;
-        localStorage.setItem("or.sideWidth", w);
+        prefSet("sideWidth", w);
         setSideWidth(w);
     });
 }

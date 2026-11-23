@@ -40,16 +40,16 @@ type App struct {
 	blobMu       sync.Mutex
 	once         sync.Once
 	initErr      error
-	db           *storage.DB
-	client       *outline.Client
+	sess         *session
+	retireMu     sync.Mutex
+	retiring     []chan struct{}
+	keyLost      bool
 	dbPath       string
 	dataDir      string
 	portable     bool
 	version      string
 	ctx          context.Context
 	uiEvents     bool
-	syncCancel   context.CancelFunc
-	blobCancel   context.CancelFunc
 	lastActivity time.Time
 	idleTimeout  time.Duration
 	updMu        sync.Mutex
@@ -106,6 +106,7 @@ func (a *App) init() error {
 }
 
 func (a *App) openDB(keyHex string) error {
+	a.waitRetired()
 	if storage.IsPlaintextDB(a.dbPath) {
 		if err := storage.MigratePlaintext(a.dbPath, keyHex); err != nil {
 			return fmt.Errorf("шифрование существующего кэша: %w", err)
@@ -115,10 +116,30 @@ func (a *App) openDB(keyHex string) error {
 	if err != nil {
 		return err
 	}
-	a.setDB(db)
+	a.attachSession(db)
 	s, err := db.GetSettings()
-	if err == nil && s.APIURL != "" && s.APIKey != "" {
-		a.setClient(outline.NewClient(s.APIURL, crypto.DecryptIfPossible(s.APIKey)))
+	if err != nil {
+		log.Printf("[APP] настройки: %v", err)
+		return nil
+	}
+	if s.APIURL != "" && s.APIKey != "" {
+		key, err := crypto.UnwrapLegacy(s.APIKey)
+		if err != nil {
+			log.Printf("[APP] сохранённый API-ключ недоступен: %v", err)
+			s.APIKey = ""
+			if err := db.SaveSettings(s); err != nil {
+				log.Printf("[APP] сброс ключа: %v", err)
+			}
+			a.setKeyLost(true)
+		} else {
+			if crypto.IsWrapped(s.APIKey) {
+				s.APIKey = key
+				if err := db.SaveSettings(s); err != nil {
+					log.Printf("[APP] перенос ключа в шифрованную базу: %v", err)
+				}
+			}
+			a.setClient(outline.NewClient(s.APIURL, key))
+		}
 	}
 	log.Printf("[APP] база открыта, portable=%v", a.portable)
 	return nil
@@ -194,13 +215,11 @@ func (a *App) startup(ctx context.Context) {
 	}
 }
 
-func (a *App) Context() context.Context { return a.ctx }
+func (a *App) appContext() context.Context { return a.ctx }
 
 func (a *App) shutdown() {
-	a.cancelWork()
-	if db := a.getDB(); db != nil {
-		_ = db.Close()
-	}
+	a.retireSession(a.detachSession())
+	a.waitRetired()
 }
 
 func (a *App) emit(name string, data ...any) {
@@ -279,37 +298,21 @@ func (a *App) StorageStatus() (StorageStatus, error) {
 	hasDB := dbFileExists(a.dbPath)
 	return StorageStatus{
 		Portable: a.portable,
-		Locked:   a.getDB() == nil,
+		Locked:   !a.unlocked(),
 		HasDB:    hasDB,
 		Legacy:   hasDB && !crypto.HasMasterSalt(a.dataDir),
 		DataDir:  a.dataDir,
 	}, nil
 }
 
-func (a *App) cancelWork() {
-	a.mu.Lock()
-	if a.syncCancel != nil {
-		a.syncCancel()
-		a.syncCancel = nil
-	}
-	if a.blobCancel != nil {
-		a.blobCancel()
-		a.blobCancel = nil
-	}
-	a.mu.Unlock()
-}
-
 func (a *App) LockApp() error {
 	a.opMu.Lock()
 	defer a.opMu.Unlock()
-	a.cancelWork()
-	a.setClient(nil)
-	db := a.getDB()
-	if db == nil {
+	s := a.detachSession()
+	if s == nil {
 		return nil
 	}
-	_ = db.Close()
-	a.setDB(nil)
+	a.retireSession(s)
 	log.Printf("[APP] база заблокирована")
 	a.emit("app:locked")
 	return nil
@@ -321,7 +324,7 @@ func (a *App) UnlockDB(passphrase string) error {
 	if err := a.ensure(); err != nil {
 		return err
 	}
-	if a.getDB() != nil {
+	if a.unlocked() {
 		return nil
 	}
 	if g := a.readGuard(); time.Now().Unix() < g.Until {
@@ -343,7 +346,20 @@ func (a *App) UnlockDB(passphrase string) error {
 		return nil
 	}
 	if !crypto.HasMasterSalt(a.dataDir) {
-		return fmt.Errorf("база создана без мастер-пароля (старый формат): очистите локальную базу и создайте заново")
+		if len(passphrase) < 8 {
+			return fmt.Errorf("мастер-пароль должен быть не короче 8 символов")
+		}
+		keyHex, err := crypto.CreateMasterKey(a.dataDir, passphrase)
+		if err != nil {
+			return err
+		}
+		if err := a.openDB(keyHex); err != nil {
+			_ = os.Remove(filepath.Join(a.dataDir, "db.salt"))
+			return err
+		}
+		a.clearGuard()
+		a.NotifyActivity()
+		return nil
 	}
 	if len(passphrase) < 8 {
 		return fmt.Errorf("введите мастер-пароль")
@@ -373,7 +389,7 @@ func (a *App) NotifyActivity() {
 }
 
 func (a *App) checkIdle() {
-	if a.getDB() == nil {
+	if !a.unlocked() {
 		return
 	}
 	a.mu.RLock()
@@ -410,11 +426,10 @@ func (a *App) syncLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			db := a.getDB()
-			if db == nil || a.getClient() == nil {
+			if !a.unlocked() || a.getClient() == nil {
 				continue
 			}
-			full := time.Since(db.GetLastFullSync()) >= fullSyncInterval
+			full := a.needFullSync()
 			res, titles, err := a.syncGuarded(full, false)
 			if errors.Is(err, errSyncInProgress) {
 				continue
@@ -433,52 +448,88 @@ func (a *App) syncLoop(ctx context.Context) {
 	}
 }
 
-func (a *App) setClient(c *outline.Client) { a.mu.Lock(); a.client = c; a.mu.Unlock() }
-func (a *App) getClient() *outline.Client  { a.mu.RLock(); defer a.mu.RUnlock(); return a.client }
-func (a *App) setDB(db *storage.DB)        { a.mu.Lock(); a.db = db; a.mu.Unlock() }
-func (a *App) getDB() *storage.DB          { a.mu.RLock(); defer a.mu.RUnlock(); return a.db }
+func (a *App) setClient(c *outline.Client) {
+	a.mu.Lock()
+	if a.sess != nil {
+		a.sess.client = c
+	}
+	a.mu.Unlock()
+}
 
-func (a *App) ready() error {
+func (a *App) getClient() *outline.Client {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.sess == nil {
+		return nil
+	}
+	return a.sess.client
+}
+
+func (a *App) getDB() *storage.DB {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.sess == nil {
+		return nil
+	}
+	return a.sess.db
+}
+
+func (a *App) unlocked() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.sess != nil
+}
+
+func (a *App) setKeyLost(v bool) { a.mu.Lock(); a.keyLost = v; a.mu.Unlock() }
+
+func (a *App) needFullSync() bool {
+	sess := a.acquire()
+	if sess == nil {
+		return false
+	}
+	defer sess.done()
+	return time.Since(sess.db.GetLastFullSync()) >= fullSyncInterval
+}
+
+func (a *App) session() (*session, error) {
 	if err := a.ensure(); err != nil {
-		return err
+		return nil, err
 	}
-	if a.getDB() == nil {
-		return fmt.Errorf("хранилище не инициализировано")
+	sess := a.acquire()
+	if sess == nil {
+		return nil, errLocked
 	}
-	return nil
+	return sess, nil
 }
 
 type ConnectionSettings struct {
-	APIURL string `json:"apiURL"`
-	HasKey bool   `json:"hasKey"`
+	APIURL  string `json:"apiURL"`
+	HasKey  bool   `json:"hasKey"`
+	KeyLost bool   `json:"keyLost"`
 }
 
 func (a *App) GetSettings() (ConnectionSettings, error) {
-	if err := a.ready(); err != nil {
-		return ConnectionSettings{}, err
-	}
-	s, err := a.getDB().GetSettings()
+	sess, err := a.session()
 	if err != nil {
 		return ConnectionSettings{}, err
 	}
-	return ConnectionSettings{APIURL: s.APIURL, HasKey: s.APIKey != ""}, nil
-}
-
-func (a *App) GetLastSyncTime() string {
-	if err := a.ready(); err != nil {
-		return ""
+	defer sess.done()
+	s, err := sess.db.GetSettings()
+	if err != nil {
+		return ConnectionSettings{}, err
 	}
-	t := a.getDB().GetLastSyncTime()
-	if t.IsZero() {
-		return ""
-	}
-	return t.UTC().Format(time.RFC3339)
+	a.mu.RLock()
+	lost := a.keyLost
+	a.mu.RUnlock()
+	return ConnectionSettings{APIURL: s.APIURL, HasKey: s.APIKey != "", KeyLost: lost}, nil
 }
 
 func (a *App) SetConnection(apiURL, apiKey string) error {
-	if err := a.ready(); err != nil {
+	sess, err := a.session()
+	if err != nil {
 		return err
 	}
+	defer sess.done()
 	apiURL = strings.TrimRight(strings.TrimSpace(apiURL), "/")
 	u, err := url.Parse(apiURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
@@ -486,34 +537,32 @@ func (a *App) SetConnection(apiURL, apiKey string) error {
 	}
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
-		s, err := a.getDB().GetSettings()
+		s, err := sess.db.GetSettings()
 		if err != nil {
 			return err
 		}
-		apiKey = crypto.DecryptIfPossible(s.APIKey)
-		if apiKey == "" {
+		stored, err := crypto.UnwrapLegacy(s.APIKey)
+		if err != nil || stored == "" {
 			return fmt.Errorf("укажите API-ключ")
 		}
+		apiKey = stored
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(sess.ctx, 15*time.Second)
 	defer cancel()
 	client := outline.NewClient(apiURL, apiKey)
 	if err := client.CheckAuth(ctx); err != nil {
 		return fmt.Errorf("проверка подключения: %w", err)
 	}
-	a.opMu.Lock()
-	defer a.opMu.Unlock()
-	if a.getDB() == nil {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.sess != sess {
 		return fmt.Errorf("хранилище заблокировано")
 	}
-	storedKey := apiKey
-	if !a.portable {
-		storedKey = crypto.EncryptIfPossible(apiKey)
-	}
-	if err := a.getDB().SaveSettings(&storage.Settings{APIURL: apiURL, APIKey: storedKey}); err != nil {
+	if err := sess.db.SaveSettings(&storage.Settings{APIURL: apiURL, APIKey: apiKey}); err != nil {
 		return err
 	}
-	a.setClient(client)
+	sess.client = client
+	a.keyLost = false
 	log.Printf("[APP] connected to %s", apiURL)
 	return nil
 }
@@ -531,10 +580,12 @@ type CollectionTree struct {
 }
 
 func (a *App) GetTree() ([]CollectionTree, error) {
-	if err := a.ready(); err != nil {
+	sess, err := a.session()
+	if err != nil {
 		return nil, err
 	}
-	db := a.getDB()
+	defer sess.done()
+	db := sess.db
 	cols, err := db.GetCollections()
 	if err != nil {
 		return nil, err
@@ -587,64 +638,78 @@ func buildNodes(docs []storage.Document) []TreeNode {
 }
 
 func (a *App) GetDocument(outlineID string) (*storage.Document, error) {
-	if err := a.ready(); err != nil {
+	sess, err := a.session()
+	if err != nil {
 		return nil, err
 	}
-	doc, err := a.getDB().GetDocumentByOutlineID(outlineID)
+	defer sess.done()
+	doc, err := sess.db.GetDocumentByOutlineID(outlineID)
 	if err == nil {
-		_ = a.getDB().TouchRecent(outlineID)
+		_ = sess.db.TouchRecent(outlineID)
 	}
 	return doc, err
 }
 
 func (a *App) GetDocumentByURLID(urlID string) (*storage.Document, error) {
-	if err := a.ready(); err != nil {
+	sess, err := a.session()
+	if err != nil {
 		return nil, err
 	}
-	doc, err := a.getDB().GetDocumentByURLID(urlID)
+	defer sess.done()
+	doc, err := sess.db.GetDocumentByURLID(urlID)
 	if err == nil {
-		_ = a.getDB().TouchRecent(doc.OutlineID)
+		_ = sess.db.TouchRecent(doc.OutlineID)
 	}
 	return doc, err
 }
 
 func (a *App) SearchDocuments(query string) ([]storage.Document, error) {
-	if err := a.ready(); err != nil {
+	sess, err := a.session()
+	if err != nil {
 		return nil, err
 	}
+	defer sess.done()
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return []storage.Document{}, nil
 	}
-	return a.getDB().SearchDocuments(query)
+	return sess.db.SearchDocuments(query)
 }
 
 func (a *App) GetRecent() ([]storage.Document, error) {
-	if err := a.ready(); err != nil {
+	sess, err := a.session()
+	if err != nil {
 		return nil, err
 	}
-	return a.getDB().GetRecentDocs()
+	defer sess.done()
+	return sess.db.GetRecentDocs()
 }
 
 func (a *App) GetFavorites() ([]storage.Document, error) {
-	if err := a.ready(); err != nil {
+	sess, err := a.session()
+	if err != nil {
 		return nil, err
 	}
-	return a.getDB().GetFavoriteDocs()
+	defer sess.done()
+	return sess.db.GetFavoriteDocs()
 }
 
 func (a *App) ToggleFavorite(oid string) (bool, error) {
-	if err := a.ready(); err != nil {
+	sess, err := a.session()
+	if err != nil {
 		return false, err
 	}
-	return a.getDB().ToggleFavorite(oid)
+	defer sess.done()
+	return sess.db.ToggleFavorite(oid)
 }
 
 func (a *App) IsFavorite(oid string) (bool, error) {
-	if err := a.ready(); err != nil {
+	sess, err := a.session()
+	if err != nil {
 		return false, err
 	}
-	return a.getDB().IsFavorite(oid), nil
+	defer sess.done()
+	return sess.db.IsFavorite(oid), nil
 }
 
 type SyncResult struct {
@@ -677,24 +742,18 @@ func (a *App) syncGuarded(full, wait bool) (SyncResult, []string, error) {
 		return SyncResult{}, nil, errSyncInProgress
 	}
 	defer a.syncMu.Unlock()
-	if err := a.ready(); err != nil {
+	sess, err := a.session()
+	if err != nil {
 		return SyncResult{}, nil, err
 	}
+	defer sess.done()
 	client := a.getClient()
 	if client == nil {
 		return SyncResult{}, nil, fmt.Errorf("подключение не настроено")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	a.mu.Lock()
-	a.syncCancel = cancel
-	a.mu.Unlock()
-	defer func() {
-		cancel()
-		a.mu.Lock()
-		a.syncCancel = nil
-		a.mu.Unlock()
-	}()
-	return a.syncCore(ctx, client, full)
+	ctx, cancel := context.WithCancel(sess.ctx)
+	defer cancel()
+	return a.syncCore(ctx, sess, client, full)
 }
 
 type docPlacement struct {
@@ -703,8 +762,8 @@ type docPlacement struct {
 	pos    int
 }
 
-func (a *App) syncCore(ctx context.Context, client *outline.Client, full bool) (SyncResult, []string, error) {
-	db := a.getDB()
+func (a *App) syncCore(ctx context.Context, sess *session, client *outline.Client, full bool) (SyncResult, []string, error) {
+	db := sess.db
 	cols, err := client.Collections(ctx)
 	if err != nil {
 		return SyncResult{}, nil, err
@@ -871,7 +930,16 @@ func (a *App) syncCore(ctx context.Context, client *outline.Client, full bool) (
 		}
 	}
 	log.Printf("[SYNC] collections=%d upserts=%d meta=%d +%d ~%d -%d", len(scols), len(upserts), res.Meta, res.Added, res.Updated, res.Deleted)
-	go a.prefetchBlobs(upserts, fullMode)
+	if ps := a.acquire(); ps != nil {
+		if ps == sess {
+			go func() {
+				defer ps.done()
+				a.prefetchBlobs(ps, upserts, fullMode)
+			}()
+		} else {
+			ps.done()
+		}
+	}
 	return res, titles, nil
 }
 
@@ -884,10 +952,12 @@ type SyncStats struct {
 }
 
 func (a *App) GetSyncStats() (SyncStats, error) {
-	if err := a.ready(); err != nil {
+	sess, err := a.session()
+	if err != nil {
 		return SyncStats{}, err
 	}
-	db := a.getDB()
+	defer sess.done()
+	db := sess.db
 	s := db.GetSyncState()
 	out := SyncStats{Total: int(db.CountDocuments()), Added: s.Added, Updated: s.Updated, Deleted: s.Deleted}
 	if !s.LastSync.IsZero() {
@@ -896,23 +966,14 @@ func (a *App) GetSyncStats() (SyncStats, error) {
 	return out, nil
 }
 
-func (a *App) prefetchBlobs(docs []storage.Document, full bool) {
+func (a *App) prefetchBlobs(sess *session, docs []storage.Document, full bool) {
 	if !a.blobMu.TryLock() {
 		return
 	}
 	defer a.blobMu.Unlock()
-	ctx, cancel := context.WithCancel(context.Background())
-	a.mu.Lock()
-	a.blobCancel = cancel
-	a.mu.Unlock()
-	defer func() {
-		cancel()
-		a.mu.Lock()
-		a.blobCancel = nil
-		a.mu.Unlock()
-	}()
-	client, db := a.getClient(), a.getDB()
-	if client == nil || db == nil {
+	ctx := sess.ctx
+	client, db := a.getClient(), sess.db
+	if client == nil || ctx.Err() != nil {
 		return
 	}
 	want := map[string]bool{}
@@ -935,7 +996,7 @@ func (a *App) prefetchBlobs(docs []storage.Document, full bool) {
 	}
 	ok, fail := 0, 0
 	for id := range want {
-		if ctx.Err() != nil || a.getDB() == nil || a.getClient() == nil {
+		if ctx.Err() != nil {
 			return
 		}
 		if haveSet[id] {
@@ -1005,8 +1066,10 @@ func (a *App) serveImage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id required", http.StatusBadRequest)
 		return
 	}
-	if db := a.getDB(); db != nil {
-		if b, err := db.GetBlob(id); err == nil {
+	sess := a.acquire()
+	if sess != nil {
+		defer sess.done()
+		if b, err := sess.db.GetBlob(id); err == nil {
 			writeBlobHeaders(w, b.Mime)
 			_, _ = w.Write(b.Data)
 			return
@@ -1033,10 +1096,8 @@ func (a *App) serveImage(w http.ResponseWriter, r *http.Request) {
 	if ct == "" {
 		ct = "application/octet-stream"
 	}
-	if int64(len(data)) <= maxBlobSize {
-		if db := a.getDB(); db != nil {
-			_ = db.SaveBlob(&storage.Blob{ID: id, Mime: ct, Data: data, Size: int64(len(data)), FetchedAt: time.Now()})
-		}
+	if int64(len(data)) <= maxBlobSize && sess != nil && sess.ctx.Err() == nil {
+		_ = sess.db.SaveBlob(&storage.Blob{ID: id, Mime: ct, Data: data, Size: int64(len(data)), FetchedAt: time.Now()})
 	}
 	writeBlobHeaders(w, ct)
 	_, _ = w.Write(data)
@@ -1048,12 +1109,8 @@ func (a *App) ResetApp() error {
 	if err := a.ensure(); err != nil {
 		return err
 	}
-	a.cancelWork()
-	a.setClient(nil)
-	if old := a.getDB(); old != nil {
-		_ = old.Close()
-		a.setDB(nil)
-	}
+	a.retireSession(a.detachSession())
+	a.waitRetired()
 	for _, suf := range []string{"", "-wal", "-shm", "-journal"} {
 		_ = os.Remove(a.dbPath + suf)
 	}

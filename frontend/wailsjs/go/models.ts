@@ -71,6 +71,7 @@ export namespace main {
 	export class ConnectionSettings {
 	    apiURL: string;
 	    hasKey: boolean;
+	    keyLost: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionSettings(source);
@@ -80,6 +81,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.apiURL = source["apiURL"];
 	        this.hasKey = source["hasKey"];
+	        this.keyLost = source["keyLost"];
 	    }
 	}
 	export class StorageInfo {

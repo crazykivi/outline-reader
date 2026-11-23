@@ -10,10 +10,6 @@ export function CheckForUpdate() {
   return window['go']['main']['App']['CheckForUpdate']();
 }
 
-export function Context() {
-  return window['go']['main']['App']['Context']();
-}
-
 export function DownloadAndInstallUpdate(arg1) {
   return window['go']['main']['App']['DownloadAndInstallUpdate'](arg1);
 }
@@ -30,8 +26,8 @@ export function GetFavorites() {
   return window['go']['main']['App']['GetFavorites']();
 }
 
-export function GetLastSyncTime() {
-  return window['go']['main']['App']['GetLastSyncTime']();
+export function GetPrefs() {
+  return window['go']['main']['App']['GetPrefs']();
 }
 
 export function GetRecent() {
@@ -76,6 +72,10 @@ export function SetCaptureProtection(arg1) {
 
 export function SetConnection(arg1, arg2) {
   return window['go']['main']['App']['SetConnection'](arg1, arg2);
+}
+
+export function SetPrefs(arg1) {
+  return window['go']['main']['App']['SetPrefs'](arg1);
 }
 
 export function StorageInfo() {
