@@ -97,6 +97,7 @@ func NewDB(dbPath, keyHex string) (*DB, error) {
 	}
 	if err := db.AutoMigrate(&Document{}, &Collection{}, &Settings{}, &SyncState{},
 		&Blob{}, &Recent{}, &Favorite{}, &Pref{}); err != nil {
+		_ = sqlDB.Close()
 		return nil, err
 	}
 	d := &DB{db: db}
@@ -165,69 +166,134 @@ func IsPlaintextDB(path string) bool {
 }
 
 func MigratePlaintext(dbPath, keyHex string) error {
+	if !IsPlaintextDB(dbPath) {
+		return fmt.Errorf("исходная база %s не является plaintext SQLite", dbPath)
+	}
+
 	old, err := gorm.Open(gormlite.Open(dsn(dbPath, "")), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
 		return err
 	}
-	oldSQL, _ := old.DB()
+	oldSQL, err := old.DB()
+	if err != nil {
+		return fmt.Errorf("получение соединения исходной базы: %w", err)
+	}
 	oldSQL.SetMaxOpenConns(1)
-	_ = old.Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error
+
+	closeOld := func(cause error) error {
+		if closeErr := oldSQL.Close(); closeErr != nil {
+			return errors.Join(cause, fmt.Errorf("закрытие исходной базы: %w", closeErr))
+		}
+		return cause
+	}
+	if err := old.Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error; err != nil {
+		return closeOld(fmt.Errorf("checkpoint исходной базы: %w", err))
+	}
+
 	var docs []Document
 	var cols []Collection
 	var s Settings
 	var ss SyncState
-	old.Find(&docs)
-	old.Find(&cols)
-	hasSettings := old.First(&s, 1).Error == nil
-	hasSync := old.First(&ss, 1).Error == nil
-	_ = oldSQL.Close()
+	if err := old.Find(&docs).Error; err != nil {
+		return closeOld(fmt.Errorf("чтение документов исходной базы: %w", err))
+	}
+	if err := old.Find(&cols).Error; err != nil {
+		return closeOld(fmt.Errorf("чтение коллекций исходной базы: %w", err))
+	}
+
+	hasSettings := false
+	if err := old.First(&s, 1).Error; err == nil {
+		hasSettings = true
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return closeOld(fmt.Errorf("чтение настроек исходной базы: %w", err))
+	}
+	hasSync := false
+	if err := old.First(&ss, 1).Error; err == nil {
+		hasSync = true
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return closeOld(fmt.Errorf("чтение состояния синхронизации исходной базы: %w", err))
+	}
+	if err := oldSQL.Close(); err != nil {
+		return fmt.Errorf("закрытие исходной базы: %w", err)
+	}
 
 	suffixes := []string{"", "-wal", "-shm", "-journal"}
+	moved := make([]string, 0, len(suffixes))
 	for _, suf := range suffixes {
-		if _, err := os.Stat(dbPath + suf); err == nil {
-			if err := os.Rename(dbPath+suf, dbPath+".plain"+suf); err != nil {
-				return err
+		_, statErr := os.Stat(dbPath + suf)
+		if os.IsNotExist(statErr) {
+			continue
+		}
+		if statErr != nil {
+			return restorePlaintextFiles(dbPath, moved, fmt.Errorf("проверка файла %s: %w", dbPath+suf, statErr))
+		}
+		if err := os.Rename(dbPath+suf, dbPath+".plain"+suf); err != nil {
+			return restorePlaintextFiles(dbPath, moved, fmt.Errorf("сохранение исходного файла %s: %w", dbPath+suf, err))
+		}
+		moved = append(moved, suf)
+	}
+
+	rollback := func(cause error, nd *DB) error {
+		if nd != nil {
+			if closeErr := nd.Close(); closeErr != nil {
+				cause = errors.Join(cause, fmt.Errorf("закрытие новой базы: %w", closeErr))
 			}
 		}
+		return restorePlaintextFiles(dbPath, moved, cause)
 	}
-	rollback := func() {
-		for _, suf := range suffixes {
-			_ = os.Rename(dbPath+".plain"+suf, dbPath+suf)
-		}
-	}
+
 	nd, err := NewDB(dbPath, keyHex)
 	if err != nil {
-		rollback()
-		return err
+		return rollback(fmt.Errorf("создание зашифрованной базы: %w", err), nil)
 	}
 	if len(cols) > 0 {
 		if err := nd.db.CreateInBatches(&cols, 200).Error; err != nil {
-			_ = nd.Close()
-			rollback()
-			return err
+			return rollback(fmt.Errorf("перенос коллекций: %w", err), nd)
 		}
 	}
 	if len(docs) > 0 {
 		if err := nd.db.CreateInBatches(&docs, 200).Error; err != nil {
-			_ = nd.Close()
-			rollback()
-			return err
+			return rollback(fmt.Errorf("перенос документов: %w", err), nd)
 		}
 	}
 	if hasSettings {
-		_ = nd.SaveSettings(&s)
+		if err := nd.SaveSettings(&s); err != nil {
+			return rollback(fmt.Errorf("перенос настроек: %w", err), nd)
+		}
 	}
 	if hasSync {
-		_ = nd.db.Save(&ss).Error
+		if err := nd.db.Save(&ss).Error; err != nil {
+			return rollback(fmt.Errorf("перенос состояния синхронизации: %w", err), nd)
+		}
 	}
-	_ = nd.Close()
-	for _, suf := range suffixes {
-		_ = os.Remove(dbPath + ".plain" + suf)
+	if err := nd.Close(); err != nil {
+		return rollback(fmt.Errorf("закрытие зашифрованной базы: %w", err), nil)
+	}
+
+	for _, suf := range moved {
+		if err := os.Remove(dbPath + ".plain" + suf); err != nil && !os.IsNotExist(err) {
+			log.Printf("[DB] не удалось удалить резервный файл %s: %v", dbPath+".plain"+suf, err)
+		}
 	}
 	log.Printf("[DB] существующий кэш зашифрован, docs=%d", len(docs))
 	return nil
+}
+
+func restorePlaintextFiles(dbPath string, moved []string, cause error) error {
+	suffixes := []string{"", "-wal", "-shm", "-journal"}
+	for _, suf := range suffixes {
+		if err := os.Remove(dbPath + suf); err != nil && !os.IsNotExist(err) {
+			cause = errors.Join(cause, fmt.Errorf("удаление незавершённого файла %s: %w", dbPath+suf, err))
+		}
+	}
+	for _, suf := range moved {
+		if err := os.Rename(dbPath+".plain"+suf, dbPath+suf); err != nil {
+			cause = errors.Join(cause, fmt.Errorf("восстановление исходного файла %s: %w", dbPath+suf, err))
+		}
+	}
+	return cause
 }
 
 func (d *DB) GetCollections() ([]Collection, error) {
