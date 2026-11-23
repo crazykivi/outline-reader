@@ -188,7 +188,11 @@ func showTrayMenu(a *App, hwnd uintptr) {
 		log.Printf("[TRAY] CreatePopupMenu: %v", err)
 		return
 	}
-	defer procDestroyMenu.Call(menu)
+	defer func() {
+		if result, _, err := procDestroyMenu.Call(menu); result == 0 {
+			log.Printf("[TRAY] DestroyMenu: %v", err)
+		}
+	}()
 
 	openText, _ := windows.UTF16PtrFromString("Открыть")
 	exitText, _ := windows.UTF16PtrFromString("Выйти")
