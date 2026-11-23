@@ -852,6 +852,8 @@ body.maximised .ic-restore { display: block; }
     pointer-events: auto;
     transition-timing-function: var(--ui-ease-out);
 }
+.toast-actionable { cursor: pointer; }
+.toast-actionable:hover { border-color: var(--muted); }
 
 .notification {
     opacity: 0;

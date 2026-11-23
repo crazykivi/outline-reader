@@ -17,6 +17,9 @@ let currentOID = null;
 let currentDocUpdated = "";
 let searchTimer = null;
 let toastTimer = null, noticeTimer = null;
+let toastAction = null;
+let toastDuration = 4000;
+let updateCheckStarted = false;
 const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "expanded", "tocOpen", "captureProtect"];
 let prefsReady = false;
 let prefsTimer = null;
@@ -202,6 +205,17 @@ function bindUI() {
         renderTree();
     });
     $("closeNotification").addEventListener("click", hideNotice);
+    const toast = $("toast");
+    toast.addEventListener("mouseenter", () => clearTimeout(toastTimer));
+    toast.addEventListener("mouseleave", () => {
+        if (toast.style.display !== "none") scheduleToastHide(toastDuration);
+    });
+    toast.addEventListener("click", () => {
+        if (!toastAction) return;
+        const action = toastAction;
+        hideToast();
+        action();
+    });
     $("lockBtn").addEventListener("click", unlockDB);
     $("lockReset").addEventListener("click", resetFromLock);
     [$("lockPass"), $("lockPass2")].forEach((el) => {
@@ -575,7 +589,7 @@ function clearMainUI() {
     uiHideNow($("connModal"));
     uiHideNow($("resetModal"));
     uiHideNow($("aboutModal"));
-    clearTimeout(toastTimer); uiHideNow($("toast"));
+    clearTimeout(toastTimer); toastAction = null; $("toast").classList.remove("toast-actionable"); uiHideNow($("toast"));
     clearTimeout(noticeTimer); uiHideNow($("updateNotification"));
     $("docViewer").style.display = "none";
     $("welcomeScreen").style.display = "none";
@@ -615,6 +629,10 @@ async function enterMain() {
     loadTree();
     go().NotifyActivity().catch(() => { });
     initCapture();
+    if (!updateCheckStarted) {
+        updateCheckStarted = true;
+        void checkForUpdates({ notify: true });
+    }
 }
 
 async function connect() {
@@ -1776,14 +1794,40 @@ function setNet(online) {
     el.title = online ? "Связь с сервером есть" : "Нет связи с сервером — работает офлайн";
 }
 
-function showToast(title, msg, isErr) {
+function showToast(title, msg, isErr, options = {}) {
     const t = $("toast");
     t.classList.toggle("error", !!isErr);
     $("toastTitle").textContent = title;
     $("toastMsg").textContent = msg;
+    toastAction = typeof options.onClick === "function" ? options.onClick : null;
+    toastDuration = options.duration || 4000;
+    t.classList.toggle("toast-actionable", !!toastAction);
+    t.title = toastAction ? "Открыть настройки обновлений" : "";
     uiShow(t, "block");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => uiHide(t), 4000);
+    if (!t.matches(":hover")) scheduleToastHide(toastDuration);
+}
+
+function scheduleToastHide(duration) {
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(hideToast, duration);
+}
+
+function hideToast() {
+    clearTimeout(toastTimer);
+    toastAction = null;
+    const t = $("toast");
+    if (t) {
+        t.classList.remove("toast-actionable");
+        t.title = "";
+        uiHide(t);
+    }
+}
+
+async function openUpdateSettings() {
+    openSettings();
+    switchSettingsTab("updates");
+    await checkForUpdates();
 }
 
 /* ---------- Тема / ширина / сайдбар ---------- */
@@ -1965,7 +2009,7 @@ function updateSettingsAbout() {
     });
 }
 
-async function checkForUpdates() {
+async function checkForUpdates({ notify = false } = {}) {
     const btn = $("settingsCheckUpdate");
     const status = $("settingsUpdateStatus");
     if (typeof go().CheckForUpdate !== "function") {
@@ -1980,14 +2024,23 @@ async function checkForUpdates() {
     try {
         const update = await go().CheckForUpdate();
         if (update && update.available) {
+            if (notify) {
+                showToast("Доступна новая версия", `v${update.version}. Нажмите, чтобы открыть настройки обновлений.`, false, {
+                    duration: 8000,
+                    onClick: openUpdateSettings,
+                });
+            }
             status.innerHTML = `Доступна новая версия: <strong>v${update.version}</strong><br>
                 <button id="settingsInstallUpdate" class="btn-primary" style="margin-top: 8px;">Скачать и установить</button>`;
             $("settingsInstallUpdate").addEventListener("click", () => installUpdate(update));
+            return update;
         } else {
             status.textContent = (update && update.note) || "У вас последняя версия";
+            return update || null;
         }
     } catch (err) {
         status.textContent = "Ошибка: " + err;
+        return null;
     } finally {
         btn.disabled = false;
         btn.textContent = "Проверить обновления";
