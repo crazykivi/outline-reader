@@ -282,8 +282,7 @@ func MigratePlaintext(dbPath, keyHex string) error {
 }
 
 func restorePlaintextFiles(dbPath string, moved []string, cause error) error {
-	suffixes := []string{"", "-wal", "-shm", "-journal"}
-	for _, suf := range suffixes {
+	for _, suf := range moved {
 		if err := os.Remove(dbPath + suf); err != nil && !os.IsNotExist(err) {
 			cause = errors.Join(cause, fmt.Errorf("удаление незавершённого файла %s: %w", dbPath+suf, err))
 		}
