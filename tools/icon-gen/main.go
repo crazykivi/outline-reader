@@ -6,9 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"image"
-	"image/color"
-	"image/draw"
-	_ "image/png"
 	"os"
 	"path/filepath"
 
@@ -57,7 +54,6 @@ func generate(input, output string) error {
 	images := make([][]byte, 0, len(sizes))
 	for _, size := range sizes {
 		scaled := image.NewRGBA(image.Rect(0, 0, size, size))
-		draw.Draw(scaled, scaled.Bounds(), &image.Uniform{C: color.Transparent}, image.Point{}, draw.Src)
 		for y := 0; y < size; y++ {
 			for x := 0; x < size; x++ {
 				sx := crop.Min.X + x*side/size
