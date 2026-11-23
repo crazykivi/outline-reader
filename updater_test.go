@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -85,4 +87,24 @@ func TestNewerVersion(t *testing.T) {
 	assert.False(t, newerVersion("v1.2.0", "1.2.0"))
 	assert.True(t, newerVersion("v1.2.0", "1.2.0-beta.1"))
 	assert.False(t, newerVersion("v1.2.0", "dev"))
+}
+
+func TestMarkUpdateReadyWithoutUpdateIsNoop(t *testing.T) {
+	t.Setenv(updateReadyEnv, "")
+	a := NewApp()
+	require.NoError(t, a.markUpdateReady())
+}
+
+func TestMarkUpdateReadyCreatesMarkerOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ready.flag")
+	t.Setenv(updateReadyEnv, path)
+	a := NewApp()
+
+	require.NoError(t, a.markUpdateReady())
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, fmt.Sprint(os.Getpid()), string(data))
+	assert.Empty(t, os.Getenv(updateReadyEnv))
+
+	require.NoError(t, a.markUpdateReady())
 }
