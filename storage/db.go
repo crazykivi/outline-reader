@@ -230,7 +230,7 @@ func MigratePlaintext(dbPath, keyHex string) error {
 			return restorePlaintextFiles(dbPath, moved, false, fmt.Errorf("проверка файла %s: %w", dbPath+suf, statErr))
 		}
 		if err := os.Rename(dbPath+suf, dbPath+".plain"+suf); err != nil {
-			return restorePlaintextFiles(dbPath, moved, fmt.Errorf("сохранение исходного файла %s: %w", dbPath+suf, err))
+			return restorePlaintextFiles(dbPath, moved, false, fmt.Errorf("сохранение исходного файла %s: %w", dbPath+suf, err))
 		}
 		moved = append(moved, suf)
 	}
