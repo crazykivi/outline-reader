@@ -145,7 +145,14 @@ func (a *App) openDB(keyHex string) error {
 
 func (a *App) cleanupPlaintextBackups() {
 	plain := a.dbPath + ".plain"
-	if _, err := os.Stat(plain); err != nil {
+	found := false
+	for _, suf := range []string{"", "-wal", "-shm", "-journal"} {
+		if _, err := os.Stat(plain + suf); err == nil {
+			found = true
+			break
+		}
+	}
+	if !found {
 		return
 	}
 	for _, suf := range []string{"", "-wal", "-shm", "-journal"} {
