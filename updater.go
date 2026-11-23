@@ -290,7 +290,9 @@ func (a *App) downloadUpdate(info *UpdateInfo) (string, error) {
 			percent := 0
 			if total > 0 {
 				percent = int(n * 100 / total)
-				if percent > 100 { percent = 100 }
+				if percent > 100 {
+					percent = 100
+				}
 			}
 			if percent != lastPercent || time.Since(lastEmit) >= 150*time.Millisecond {
 				a.emit("update:progress", map[string]any{"state": "downloading", "downloaded": n, "total": total, "percent": percent, "version": info.Version})
