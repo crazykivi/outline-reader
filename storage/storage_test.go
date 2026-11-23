@@ -153,6 +153,8 @@ func TestMigratePlaintextPreservesAllStoredData(t *testing.T) {
 	require.NoError(t, db.SetLastFullSync(now))
 	require.NoError(t, db.SaveBlob(&Blob{ID: "attachment-1", Mime: "image/png", Data: []byte{1, 2, 3}, Size: 3}))
 	require.NoError(t, db.SetPrefs(map[string]string{"theme": "dark"}))
+	require.NoError(t, db.db.Create(&Recent{OutlineID: "doc-1", OpenedAt: now}).Error)
+	require.NoError(t, db.db.Create(&Favorite{OutlineID: "doc-1", AddedAt: now}).Error)
 	require.NoError(t, db.Close())
 
 	key := strings.Repeat("ab", 32)
@@ -191,6 +193,14 @@ func TestMigratePlaintextPreservesAllStoredData(t *testing.T) {
 	prefs, err := encrypted.GetPrefs()
 	require.NoError(t, err)
 	assert.Equal(t, "dark", prefs["theme"])
+	recent, err := encrypted.GetRecentDocs()
+	require.NoError(t, err)
+	require.Len(t, recent, 1)
+	assert.Equal(t, "doc-1", recent[0].OutlineID)
+	favorites, err := encrypted.GetFavoriteDocs()
+	require.NoError(t, err)
+	require.Len(t, favorites, 1)
+	assert.Equal(t, "doc-1", favorites[0].OutlineID)
 }
 
 func TestMigratePlaintextRestoresOriginalOnEncryptionFailure(t *testing.T) {
@@ -214,4 +224,29 @@ func TestMigratePlaintextRestoresOriginalOnEncryptionFailure(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://preserve.example", settings.APIURL)
 	assert.Equal(t, "keep-me", settings.APIKey)
+}
+
+func TestMigratePlaintextSupportsOlderCacheSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.db")
+	db, err := NewDB(path, "")
+	require.NoError(t, err)
+	require.NoError(t, db.ApplySync([]Collection{{OutlineID: "collection-1", Name: "Wiki"}}, []Document{
+		{OutlineID: "doc-1", CollectionID: "collection-1", Title: "Legacy document", Text: "legacy text"},
+	}, nil, nil))
+	require.NoError(t, db.SaveSettings(&Settings{APIURL: "https://legacy.example"}))
+	require.NoError(t, db.db.Migrator().DropTable(&Blob{}, &Recent{}, &Favorite{}, &Pref{}))
+	require.NoError(t, db.Close())
+
+	key := strings.Repeat("cd", 32)
+	require.NoError(t, MigratePlaintext(path, key))
+	encrypted, err := NewDB(path, key)
+	require.NoError(t, err)
+	defer func() { _ = encrypted.Close() }()
+
+	doc, err := encrypted.GetDocumentByOutlineID("doc-1")
+	require.NoError(t, err)
+	assert.Equal(t, "legacy text", doc.Text)
+	settings, err := encrypted.GetSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "https://legacy.example", settings.APIURL)
 }
