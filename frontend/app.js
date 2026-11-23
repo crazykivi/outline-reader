@@ -2019,7 +2019,8 @@ function renderUpdateProgress(progress) {
     };
     const label = document.createElement("div");
     label.className = "update-progress-label";
-    label.textContent = labels[state] || "Обновление";
+    const versionLabel = progress.version ? " · v" + progress.version : "";
+    label.textContent = (labels[state] || "Обновление") + versionLabel;
     status.appendChild(label);
 
     if (state === "downloading") {
