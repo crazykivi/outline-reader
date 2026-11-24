@@ -1243,7 +1243,21 @@ function markActive() {
         ? document.querySelector(`.tree-row.fav-row[data-oid="${esc}"]`)
         : document.querySelector(`.tree-row:not(.fav-row)[data-oid="${esc}"]`);
     if (!row) row = document.querySelector(`.tree-row[data-oid="${esc}"]`);
-    if (row) { row.classList.add("active"); row.scrollIntoView({ block: "nearest" }); }
+    if (row) {
+        row.classList.add("active");
+        const sidebar = document.querySelector(".sidebar");
+        const sidebarTop = document.querySelector(".sidebar-top");
+        const sidebarLower = document.querySelector(".sidebar-lower");
+        const sidebarRect = sidebar.getBoundingClientRect();
+        const topEdge = Math.max(sidebarRect.top, sidebarTop.getBoundingClientRect().bottom) + 8;
+        const bottomEdge = Math.min(sidebarRect.bottom, sidebarLower.getBoundingClientRect().top) - 8;
+        const rowRect = row.getBoundingClientRect();
+        if (rowRect.top < topEdge) {
+            sidebar.scrollBy({ top: rowRect.top - topEdge, behavior: "smooth" });
+        } else if (rowRect.bottom > bottomEdge) {
+            sidebar.scrollBy({ top: rowRect.bottom - bottomEdge, behavior: "smooth" });
+        }
+    }
 }
 
 function goBack() {
