@@ -1620,12 +1620,8 @@ async function openDocument(oid, query, source) {
             history = saved ? saved.history.slice() : [oid];
             historyIndex = saved ? saved.historyIndex : 0;
             skipHistoryPush = false;
-        } else if (oid !== currentOID && source !== "navigate") {
-            history = [oid];
-            historyIndex = 0;
-            skipHistoryPush = false;
         }
-        if (source === "navigate") {
+        if (source !== "tab") {
             const previousOID = activeTabOID;
             if (previousOID && previousOID !== oid) {
                 const saved = tabHistories.get(previousOID) || { history: history.slice(), historyIndex };
