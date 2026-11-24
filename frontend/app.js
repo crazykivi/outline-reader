@@ -355,6 +355,15 @@ function bindUI() {
     $("aboutModal").addEventListener("mousedown", (e) => { if (e.target === $("aboutModal")) closeAboutModal(); });
 
     $("settingsBtn").addEventListener("click", openSettings);
+    KnowledgeMap.init({
+        getCollections: () => collections,
+        getCurrentOID: () => currentOID,
+        openDocument: (oid) => openDocument(oid, undefined, "navigate"),
+    });
+    $("knowledgeMapBtn").addEventListener("click", () => {
+        closeSideMenu();
+        KnowledgeMap.open();
+    });
     $("settingsClose").addEventListener("click", closeSettings);
     $("settingsScreen").addEventListener("mousedown", (e) => {
         if (e.target === $("settingsScreen")) closeSettings();
