@@ -137,6 +137,31 @@ body.resizing { user-select: none; cursor: col-resize; }
     border: none; border-radius: 5px; color: var(--muted); cursor: pointer;
 }
 .btn-mini:hover { color: var(--text); }
+
+.tree-action {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    min-height: 28px; padding: 0 9px; flex: none;
+    color: var(--muted); background: var(--panel); border: 1px solid var(--border);
+    border-radius: 7px; font: inherit; font-size: 11px; font-weight: 600;
+    white-space: nowrap; cursor: pointer;
+    transition: color .18s ease, background .18s ease, border-color .18s ease, transform .18s ease;
+}
+.tree-action:hover {
+    color: var(--text); background: var(--hover, var(--panel));
+    border-color: var(--accent); transform: translateY(-1px);
+}
+.tree-action:active { transform: translateY(0) scale(.97); }
+.tree-action-icon {
+    flex: none; transition: transform .24s cubic-bezier(.2,.8,.2,1);
+}
+.tree-action[data-action="expand"] .tree-action-icon { transform: rotate(180deg); }
+.tree-action:hover[data-action="collapse"] .tree-action-icon { transform: translateY(-2px); }
+.tree-action:hover[data-action="expand"] .tree-action-icon { transform: rotate(180deg) translateY(-2px); }
+.tree-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+    .tree-action, .tree-action-icon { transition: none; }
+}
+
 .btn-mini.favorite {
     position: absolute; transform: translateY(-50%);
     right: 5px; top: 50%; width: 28px; height: 28px;
