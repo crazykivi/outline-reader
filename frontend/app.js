@@ -1189,7 +1189,7 @@ function renderTabs() {
 }
 
 function closeTab(oid) {
-    openRequestID++;
+    if (activeTabOID === oid) openRequestID++;
     const pos = openTabs.indexOf(oid);
     if (pos < 0) return;
     openTabs.splice(pos, 1);
@@ -1370,7 +1370,7 @@ async function openDocument(oid, query, source) {
             find.current = -1;
         }
     } catch (err) {
-        showToast("Ошибка", "Не удалось открыть документ: " + err, true);
+        if (requestID === openRequestID) showToast("Ошибка", "Не удалось открыть документ: " + err, true);
     }
 }
 
