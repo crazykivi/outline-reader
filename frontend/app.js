@@ -1385,7 +1385,7 @@ function renderTabs() {
         tab.setAttribute("role", "tab");
         tab.setAttribute("aria-selected", String(oid === activeTabOID));
         tab.tabIndex = oid === activeTabOID ? 0 : -1;
-        tab.title = info.title || oid;
+        tab.title = empty ? "Новая вкладка" : (info.title || oid);
 
         if (isPinned) {
             const pin = document.createElement("span");
