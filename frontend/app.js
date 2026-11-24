@@ -206,13 +206,21 @@ function bindUI() {
         applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
     });
     $("collapseAllBtn").addEventListener("click", () => {
-        expanded.clear();
-        collapsedCollections = new Set(collections.map((col) => col.id));
-        favoritesCollapsed = true;
+        const rootNodes = collections.flatMap((col) => col.nodes || []);
+        const expandableRoots = rootNodes.filter((node) => (node.children || []).length > 0);
+        if (!expandableRoots.length) return;
+
+        const shouldCollapse = expandableRoots.some((node) => expanded.has(node.oid));
+        for (const node of expandableRoots) {
+            if (shouldCollapse) expanded.delete(node.oid);
+            else expanded.add(node.oid);
+        }
+
         saveExpanded();
-        saveCollapsedCollections();
-        saveFavoritesCollapsed();
+        const sidebar = document.querySelector(".sidebar");
+        const scroll = sidebar.scrollTop;
         renderTree();
+        sidebar.scrollTop = scroll;
     });
     $("closeNotification").addEventListener("click", hideNotice);
     const toast = $("toast");
