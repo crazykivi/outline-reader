@@ -13,6 +13,7 @@ const KnowledgeMap = (() => {
     let openDocument = async () => {};
     let selectedOID = null;
     let expanded = new Set();
+    let collapsedCollections = new Set();
     let searchQuery = "";
     let transform = { x: 48, y: 48, scale: 1 };
     let bounds = { width: 1000, height: 700 };
@@ -143,7 +144,8 @@ const KnowledgeMap = (() => {
 
         collections.forEach((collection) => {
             const roots = collection.nodes || [];
-            const rows = roots.reduce((sum, node) => sum + leafCount(node), 0);
+            const isCollapsed = collapsedCollections.has(collection.id);
+            const rows = isCollapsed ? 1 : roots.reduce((sum, node) => sum + leafCount(node), 0);
             const collectionHeight = Math.max(1, rows) * ROW_GAP;
             const centerY = cursorY + collectionHeight / 2;
             const collectionNode = {
@@ -156,6 +158,7 @@ const KnowledgeMap = (() => {
                 y: centerY - NODE_HEIGHT / 2,
                 depth: 0,
                 childrenCount: roots.length,
+                isCollapsed,
             };
             nodes.push(collectionNode);
 
@@ -182,7 +185,7 @@ const KnowledgeMap = (() => {
                     row += count;
                 }
             };
-            roots.forEach((doc) => placeDocument(doc, collectionNode, 1));
+            if (!isCollapsed) roots.forEach((doc) => placeDocument(doc, collectionNode, 1));
             cursorY += collectionHeight + COLLECTION_GAP;
         });
 
@@ -239,15 +242,16 @@ const KnowledgeMap = (() => {
         group.appendChild(svgElement("text", { class: "node-title", x: 26, y: 25 }, truncate(node.title, 29)));
         group.appendChild(svgElement("text", { class: "node-subtitle", x: 26, y: 43 }, truncate(node.subtitle, 34)));
 
-        if (node.type === "document" && node.childrenCount > 0) {
-            const isExpanded = expanded.has(node.id);
+        if (node.childrenCount > 0) {
+            const isExpanded = node.type === "collection" ? !node.isCollapsed : expanded.has(node.id);
+            const toggleAttribute = node.type === "collection" ? "data-toggle-collection" : "data-toggle";
             group.appendChild(svgElement("circle", {
                 class: "node-toggle", cx: NODE_WIDTH - 16, cy: NODE_HEIGHT / 2, r: 11,
-                "data-toggle": node.id,
+                [toggleAttribute]: node.id,
             }));
             group.appendChild(svgElement("text", {
                 class: "node-toggle-text", x: NODE_WIDTH - 16, y: NODE_HEIGHT / 2 + .5,
-                "data-toggle": node.id,
+                [toggleAttribute]: node.id,
             }, isExpanded ? "−" : "+"));
             group.appendChild(svgElement("text", {
                 class: "node-subtitle", x: NODE_WIDTH - 34, y: NODE_HEIGHT / 2 + 3, "text-anchor": "end",
@@ -255,6 +259,14 @@ const KnowledgeMap = (() => {
         }
 
         group.addEventListener("click", (event) => {
+            const collectionToggle = event.target.closest("[data-toggle-collection]");
+            if (collectionToggle) {
+                const id = collectionToggle.getAttribute("data-toggle-collection");
+                if (collapsedCollections.has(id)) collapsedCollections.delete(id);
+                else collapsedCollections.add(id);
+                render();
+                return;
+            }
             const toggle = event.target.closest("[data-toggle]");
             if (toggle) {
                 const oid = toggle.getAttribute("data-toggle");
@@ -326,7 +338,11 @@ const KnowledgeMap = (() => {
             }
             return false;
         };
-        (getCollections() || []).some((collection) => visit(collection.nodes, []));
+        (getCollections() || []).some((collection) => {
+            const found = visit(collection.nodes, []);
+            if (found) collapsedCollections.delete(collection.id);
+            return found;
+        });
     }
 
     function findDocument(query) {
