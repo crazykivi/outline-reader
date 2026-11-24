@@ -941,6 +941,24 @@ function expandAncestors(oid) {
     saveCollapsedCollections();
 }
 
+function updateCollapseAllButton() {
+    const btn = $("collapseAllBtn");
+    if (!btn) return;
+
+    const hasCollections = collections.length > 0;
+    const willCollapse = hasCollections && collections.some((col) => !collapsedCollections.has(col.id));
+    const action = willCollapse ? "collapse" : "expand";
+    const label = !hasCollections ? "Нет категорий" : willCollapse ? "Свернуть всё" : "Развернуть категории";
+
+    btn.disabled = !hasCollections;
+    btn.dataset.action = action;
+    btn.querySelector(".tree-action-label").textContent = label;
+    btn.title = willCollapse
+        ? "Свернуть все категории и вложенные документы"
+        : "Развернуть все категории (документы останутся свёрнутыми)";
+    btn.setAttribute("aria-label", btn.title);
+}
+
 function renderTree() {
     const el = $("docTree");
     el.innerHTML = "";
@@ -949,6 +967,7 @@ function renderTree() {
         d.className = "tree-empty";
         d.textContent = "База пуста. Нажмите кнопку синхронизации в меню.";
         el.appendChild(d);
+        updateCollapseAllButton();
         return;
     }
     if (favorites.length) {
@@ -1000,6 +1019,7 @@ function renderTree() {
     }
     updateStatus();
     markActive();
+    updateCollapseAllButton();
 }
 
 function toggleNode(oid) {
