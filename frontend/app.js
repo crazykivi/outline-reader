@@ -1307,7 +1307,7 @@ function isEmptyTab(oid) {
 function getTabDocumentOID(tabID) {
     if (isEmptyTab(tabID)) return null;
     if (typeof tabID === "string" && tabID.startsWith(DUPLICATE_TAB_PREFIX)) {
-        const separator = tabID.indexOf("_", DUPLICATE_TAB_PREFIX.length);
+        const separator = tabID.indexOf(":", DUPLICATE_TAB_PREFIX.length);
         if (separator < 0) return null;
         try { return decodeURIComponent(tabID.slice(separator + 1)); } catch (e) { return null; }
     }
@@ -1317,7 +1317,7 @@ function getTabDocumentOID(tabID) {
 function createDuplicateTabID(oid) {
     let tabID;
     do {
-        tabID = DUPLICATE_TAB_PREFIX + Date.now() + "_" + (++emptyTabSequence) + "_" + encodeURIComponent(oid);
+        tabID = DUPLICATE_TAB_PREFIX + Date.now() + "_" + (++emptyTabSequence) + ":" + encodeURIComponent(oid);
     } while (openTabs.includes(tabID));
     return tabID;
 }
@@ -1711,7 +1711,9 @@ async function openDocument(oid, query, source, targetTabID) {
         } else {
             const previousID = activeTabOID;
             let nextTabID = oid;
-            if (previousID && !isEmptyTab(previousID)) {
+            if (source === "navigate" && previousID && !isEmptyTab(previousID)) {
+                nextTabID = previousID;
+            } else if (previousID && !isEmptyTab(previousID)) {
                 if (getTabDocumentOID(previousID) === oid) nextTabID = previousID;
                 else nextTabID = openTabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid)
                     ? createDuplicateTabID(oid) : oid;
