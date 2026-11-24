@@ -153,6 +153,8 @@ body.resizing { user-select: none; cursor: col-resize; }
     text-transform: uppercase; color: var(--muted); cursor: pointer;
 }
 .collection-title:hover { color: var(--text); }
+.collection-title-static { cursor: default; }
+.collection-title-static:hover { color: var(--muted); }
 .collection-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .collection-chevron {
     width: 7px; height: 7px; flex: none; margin-right: 3px;

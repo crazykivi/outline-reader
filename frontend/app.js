@@ -937,7 +937,7 @@ function renderTree() {
     if (favorites.length) {
         const sec = document.createElement("section");
         const h = document.createElement("div");
-        h.className = "collection-title";
+        h.className = "collection-title collection-title-static";
         h.textContent = "Избранное";
         sec.appendChild(h);
         const ul = document.createElement("ul");
