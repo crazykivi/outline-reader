@@ -948,7 +948,6 @@ function updateCollapseAllButton() {
     const hasCollections = collections.length > 0;
     const willCollapse = hasCollections && collections.some((col) => !collapsedCollections.has(col.id));
     const action = willCollapse ? "collapse" : "expand";
-    const label = !hasCollections ? "Нет категорий" : willCollapse ? "Свернуть всё" : "Развернуть категории";
 
     btn.disabled = !hasCollections;
     btn.dataset.action = action;
