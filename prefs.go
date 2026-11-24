@@ -9,6 +9,7 @@ var prefKeys = map[string]bool{
 	"collapsedCollections": true,
 	"favoritesCollapsed":   true,
 	"openTabs":             true,
+	"pinnedTabs":            true,
 	"activeTabOID":         true,
 	"fullWidth":            true,
 	"fontScale":            true,
