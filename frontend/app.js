@@ -16,13 +16,16 @@ let history = [];
 let historyIndex = -1;
 let skipHistoryPush = false;
 let currentOID = null;
+let openTabs = [];
+let activeTabOID = null;
+let tabsRestored = false;
 let currentDocUpdated = "";
 let searchTimer = null;
 let toastTimer = null, noticeTimer = null;
 let toastAction = null;
 let toastDuration = 4000;
 let updateCheckStarted = false;
-const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect"];
+const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect", "openTabs", "activeTabOID"];
 let prefsReady = false;
 let prefsTimer = null;
 const prefsDirty = new Map();
@@ -74,6 +77,12 @@ async function loadPrefs() {
     try { expanded = new Set(JSON.parse(prefGet("expanded", "[]"))); } catch (e) { expanded = new Set(); }
     try { collapsedCollections = new Set(JSON.parse(prefGet("collapsedCollections", "[]"))); } catch (e) { collapsedCollections = new Set(); }
     favoritesCollapsed = prefGet("favoritesCollapsed", "false") === "true";
+    try { openTabs = JSON.parse(prefGet("openTabs", "[]")); } catch (e) { openTabs = []; }
+    if (!Array.isArray(openTabs)) openTabs = [];
+    openTabs = [...new Set(openTabs.filter((id) => typeof id === "string" && id))];
+    activeTabOID = prefGet("activeTabOID", "") || null;
+    if (activeTabOID && !openTabs.includes(activeTabOID)) activeTabOID = openTabs[openTabs.length - 1] || null;
+    tabsRestored = false;
     const w = parseInt(prefGet("sideWidth", "300"), 10);
     const sidebar = document.querySelector(".sidebar");
     if (sidebar && w >= 220 && w <= 480) {
@@ -598,6 +607,7 @@ function clearMainUI() {
     currentDocUrl = "";
     history = []; historyIndex = -1; updateHistoryButtons();
     $("docContent").innerHTML = ""; $("docTitle").textContent = "";
+    renderTabs();
     $("docDate").textContent = ""; $("docCrumbs").innerHTML = "";
     $("docLink").style.display = "none";
     $("favBtn").style.display = "none";
@@ -872,6 +882,10 @@ async function loadTree() {
         await refreshFavorites();
         if (currentOID) expandAncestors(currentOID);
         renderTree();
+        if (!tabsRestored) {
+            tabsRestored = true;
+            await restoreOpenTabs();
+        }
     } catch (err) {
         $("docTree").innerHTML = "";
         const d = document.createElement("div");
@@ -1125,6 +1139,79 @@ function updateHistoryButtons() {
     $("forwardBtn").disabled = historyIndex >= history.length - 1;
 }
 
+function saveOpenTabs() {
+    prefSet("openTabs", JSON.stringify(openTabs));
+    prefSet("activeTabOID", activeTabOID || "");
+}
+
+async function restoreOpenTabs() {
+    renderTabs();
+    if (!openTabs.length) return;
+    const target = activeTabOID || openTabs[openTabs.length - 1];
+    try {
+        await openDocument(target, undefined, "tab");
+    } catch (e) {
+        openTabs = openTabs.filter((id) => id !== target);
+        activeTabOID = openTabs[openTabs.length - 1] || null;
+        saveOpenTabs();
+        renderTabs();
+    }
+}
+
+function renderTabs() {
+    const bar = $("docTabs");
+    if (!bar) return;
+    bar.innerHTML = "";
+    bar.style.display = openTabs.length ? "flex" : "none";
+    for (const oid of openTabs) {
+        const info = index[oid] || {};
+        const tab = document.createElement("div");
+        tab.className = "doc-tab" + (oid === activeTabOID ? " active" : "");
+        tab.title = info.title || oid;
+        const label = document.createElement("span");
+        label.className = "doc-tab-title";
+        label.textContent = info.title || oid;
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "doc-tab-close";
+        close.title = "Закрыть вкладку";
+        close.setAttribute("aria-label", "Закрыть " + (info.title || "документ"));
+        close.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+        close.addEventListener("click", (e) => { e.stopPropagation(); closeTab(oid); });
+        tab.append(label, close);
+        tab.addEventListener("click", () => {
+            if (oid !== currentOID) openDocument(oid, undefined, "tab");
+        });
+        bar.appendChild(tab);
+    }
+}
+
+function closeTab(oid) {
+    const pos = openTabs.indexOf(oid);
+    if (pos < 0) return;
+    openTabs.splice(pos, 1);
+    if (activeTabOID === oid) {
+        activeTabOID = openTabs[Math.min(pos, openTabs.length - 1)] || null;
+        if (activeTabOID) {
+            saveOpenTabs();
+            renderTabs();
+            openDocument(activeTabOID, undefined, "tab");
+            return;
+        }
+        currentOID = null;
+        currentDocUpdated = "";
+        currentDocUrl = "";
+        $("docViewer").style.display = "none";
+        $("welcomeScreen").style.display = "flex";
+        $("tocBtn").disabled = true;
+        $("favBtn").style.display = "none";
+        closeFindBar(true);
+    }
+    saveOpenTabs();
+    renderTabs();
+}
+
+
 /* ---------- Избранное / недавние / палитра ---------- */
 
 async function refreshFavorites() {
@@ -1236,8 +1323,19 @@ async function openDocument(oid, query, source) {
     activeSource = source === "fav" ? "fav" : "tree";
     try {
         const doc = await go().GetDocument(oid);
+        if (source === "navigate") {
+            const pos = openTabs.indexOf(activeTabOID);
+            if (pos >= 0) openTabs[pos] = oid;
+            else openTabs.push(oid);
+            activeTabOID = oid;
+        } else {
+            if (!openTabs.includes(oid)) openTabs.push(oid);
+            activeTabOID = oid;
+        }
+        saveOpenTabs();
+        renderTabs();
 
-        if (!skipHistoryPush) {
+        if (source !== "tab" && !skipHistoryPush) {
             if (historyIndex < history.length - 1) {
                 history = history.slice(0, historyIndex + 1);
             }
@@ -1331,7 +1429,7 @@ function renderCrumbs(oid) {
         if (part.oid) {
             const a = document.createElement("a");
             a.textContent = part.title;
-            a.addEventListener("click", () => openDocument(part.oid));
+            a.addEventListener("click", () => openDocument(part.oid, undefined, "navigate"));
             el.appendChild(a);
         } else {
             const s = document.createElement("span");
