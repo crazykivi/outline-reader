@@ -19,6 +19,7 @@ let currentOID = null;
 let openTabs = [];
 let activeTabOID = null;
 let tabsRestored = false;
+let openRequestID = 0;
 let currentDocUpdated = "";
 let searchTimer = null;
 let toastTimer = null, noticeTimer = null;
@@ -1188,6 +1189,7 @@ function renderTabs() {
 }
 
 function closeTab(oid) {
+    openRequestID++;
     const pos = openTabs.indexOf(oid);
     if (pos < 0) return;
     openTabs.splice(pos, 1);
@@ -1202,6 +1204,9 @@ function closeTab(oid) {
         currentOID = null;
         currentDocUpdated = "";
         currentDocUrl = "";
+        history = [];
+        historyIndex = -1;
+        updateHistoryButtons();
         $("docViewer").style.display = "none";
         $("welcomeScreen").style.display = "flex";
         $("tocBtn").disabled = true;
@@ -1321,9 +1326,11 @@ function paletteMove(dir) {
 /* ---------- Документ ---------- */
 
 async function openDocument(oid, query, source) {
-    activeSource = source === "fav" ? "fav" : "tree";
+    const requestID = ++openRequestID;
     try {
         const doc = await go().GetDocument(oid);
+        if (requestID !== openRequestID) return;
+        activeSource = source === "fav" ? "fav" : "tree";
         if (source === "navigate") {
             const pos = openTabs.indexOf(activeTabOID);
             if (pos >= 0) openTabs[pos] = oid;
