@@ -177,7 +177,7 @@ const KnowledgeMap = (() => {
                 node.y = Math.sin(angle) * radius;
                 const parentID = parentByID.get(node.id);
                 const parent = parentID ? byID.get(parentID) : null;
-                edges.push({ parent, child: node });
+                edges.push({ parent, child: node, collectionId: parent ? null : collection.id });
             });
         });
 
