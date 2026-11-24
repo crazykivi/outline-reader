@@ -206,17 +206,14 @@ function bindUI() {
         applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
     });
     $("collapseAllBtn").addEventListener("click", () => {
-        const rootNodes = collections.flatMap((col) => col.nodes || []);
-        const expandableRoots = rootNodes.filter((node) => (node.children || []).length > 0);
-        if (!expandableRoots.length) return;
+        if (!collections.length) return;
 
-        const shouldCollapse = expandableRoots.some((node) => expanded.has(node.oid));
-        for (const node of expandableRoots) {
-            if (shouldCollapse) expanded.delete(node.oid);
-            else expanded.add(node.oid);
-        }
+        const shouldCollapse = collections.some((col) => !collapsedCollections.has(col.id));
+        collapsedCollections = shouldCollapse
+            ? new Set(collections.map((col) => col.id))
+            : new Set();
 
-        saveExpanded();
+        saveCollapsedCollections();
         const sidebar = document.querySelector(".sidebar");
         const scroll = sidebar.scrollTop;
         renderTree();
