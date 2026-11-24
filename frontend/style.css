@@ -431,7 +431,7 @@ mark.find-hit.current {
 .doc-header-main { min-width: 0; }
 .doc-links { 
     display: flex; align-items: center; justify-content: flex-end; 
-    gap: 4px; flex-wrap: wrap; max-width: 100%; top: 5px;
+    gap: 4px; flex-wrap: wrap; max-width: 100%; top: 40px;
     position: absolute; right: 55px;
 }
 .doc-link {
@@ -583,7 +583,7 @@ mark.find-hit.current {
 .ic-restore { display: none; }
 body.maximised .ic-max { display: none; }
 body.maximised .ic-restore { display: block; }
-.veiwer-div {position: absolute; right: 17px; top: 0; z-index: 1;}
+.veiwer-div {position: absolute; right: 17px; top: 38px; z-index: 1;}
 
 .sidebar-lower {
     position: fixed; left: 0; bottom: 0; z-index: 6;
