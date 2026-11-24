@@ -687,6 +687,7 @@ function clearMainUI() {
     $("tocContent").innerHTML = "";
     closeFindBar(true); closeMenu(true); closeSideMenu(true); closePalette(true);
     settingsOpen = false;
+    KnowledgeMap.close();
     uiHideNow($("settingsScreen"));
     uiHideNow($("connModal"));
     uiHideNow($("resetModal"));
