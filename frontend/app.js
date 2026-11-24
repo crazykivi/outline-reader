@@ -1143,19 +1143,20 @@ function updateHistoryButtons() {
 function saveOpenTabs() {
     prefSet("openTabs", JSON.stringify(openTabs));
     prefSet("activeTabOID", activeTabOID || "");
+    void flushPrefs();
 }
 
 async function restoreOpenTabs() {
     renderTabs();
-    if (!openTabs.length) return;
-    const target = activeTabOID || openTabs[openTabs.length - 1];
-    await openDocument(target, undefined, "tab");
-    if (currentOID !== target) {
+    const candidates = [activeTabOID, ...openTabs.slice().reverse()].filter((id, i, all) => id && all.indexOf(id) === i);
+    for (const target of candidates) {
+        await openDocument(target, undefined, "tab");
+        if (currentOID === target) return;
         openTabs = openTabs.filter((id) => id !== target);
-        activeTabOID = openTabs[openTabs.length - 1] || null;
-        saveOpenTabs();
-        renderTabs();
     }
+    activeTabOID = null;
+    saveOpenTabs();
+    renderTabs();
 }
 
 function renderTabs() {
