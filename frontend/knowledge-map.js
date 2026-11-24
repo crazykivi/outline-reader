@@ -75,6 +75,7 @@ const KnowledgeMap = (() => {
         map.classList.add("is-open");
         map.setAttribute("aria-hidden", "false");
         selectedOID = getCurrentOID() || selectedOID;
+        if (selectedOID) expandPath(selectedOID);
         $("knowledgeMapSearch").value = "";
         searchQuery = "";
         render();
@@ -314,17 +315,51 @@ const KnowledgeMap = (() => {
         await openDocument(selectedOID);
     }
 
+    function expandPath(oid) {
+        const visit = (nodes, ancestors) => {
+            for (const node of nodes || []) {
+                if (node.oid === oid) {
+                    ancestors.forEach((id) => expanded.add(id));
+                    return true;
+                }
+                if (visit(node.children, [...ancestors, node.oid])) return true;
+            }
+            return false;
+        };
+        (getCollections() || []).some((collection) => visit(collection.nodes, []));
+    }
+
+    function findDocument(query) {
+        let match = null;
+        const visit = (nodes) => {
+            for (const node of nodes || []) {
+                if (node.title.toLocaleLowerCase().includes(query)) {
+                    match = node;
+                    return true;
+                }
+                if (visit(node.children)) return true;
+            }
+            return false;
+        };
+        for (const collection of getCollections() || []) {
+            if (visit(collection.nodes)) break;
+        }
+        return match;
+    }
+
     function focusFirstMatch() {
         if (!searchQuery) return;
-        const match = [...nodesByKey.values()].find((node) => node.type === "document" &&
-            node.title.toLocaleLowerCase().includes(searchQuery));
+        const match = findDocument(searchQuery);
         if (!match) return;
-        selectedOID = match.id;
-        updateInspector();
-        const canvas = $("knowledgeMapCanvas");
-        transform.x = canvas.clientWidth / 2 - (match.x + NODE_WIDTH / 2) * transform.scale;
-        transform.y = canvas.clientHeight / 2 - (match.y + NODE_HEIGHT / 2) * transform.scale;
+        selectedOID = match.oid;
+        expandPath(match.oid);
         render();
+        const positioned = nodesByKey.get("doc:" + match.oid);
+        if (!positioned) return;
+        const canvas = $("knowledgeMapCanvas");
+        transform.x = canvas.clientWidth / 2 - (positioned.x + NODE_WIDTH / 2) * transform.scale;
+        transform.y = canvas.clientHeight / 2 - (positioned.y + NODE_HEIGHT / 2) * transform.scale;
+        applyTransform();
     }
 
     function fit() {
