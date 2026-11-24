@@ -183,13 +183,11 @@ const KnowledgeMap = (() => {
         const collections = getCollections() || [];
         const viewport = $("knowledgeMapViewport");
         const empty = $("knowledgeMapEmpty");
-        const meta = $("knowledgeMapMeta");
         viewport.replaceChildren();
         nodesByKey = new Map();
         connectedKeys = new Set();
 
         const documentCount = collections.reduce((sum, collection) => sum + countDocuments(collection.nodes), 0);
-        meta.textContent = collections.length + " коллекций · " + documentCount + " документов";
         empty.hidden = documentCount > 0;
 
         if (!documentCount) {
