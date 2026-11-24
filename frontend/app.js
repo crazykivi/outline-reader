@@ -14,6 +14,7 @@ let collapsedCollections = new Set();
 let favoritesCollapsed = false;
 let history = [];
 let historyIndex = -1;
+const tabHistories = new Map();
 let skipHistoryPush = false;
 let currentOID = null;
 let openTabs = [];
@@ -1461,6 +1462,7 @@ function closeTab(oid) {
     if (pos < 0) return;
     openTabs.splice(pos, 1);
     pinnedTabs = pinnedTabs.filter((id) => id !== oid);
+    tabHistories.delete(oid);
     if (activeTabOID === oid) {
         activeTabOID = openTabs[Math.min(pos, openTabs.length - 1)] || null;
         if (activeTabOID) {
@@ -1609,13 +1611,27 @@ async function openDocument(oid, query, source) {
         const doc = await go().GetDocument(oid);
         if (requestID !== openRequestID) return;
         activeSource = source === "fav" ? "fav" : "tree";
-        if (oid !== currentOID && source !== "navigate") {
+        const previousTabOID = activeTabOID;
+        if (previousTabOID && previousTabOID !== oid) {
+            tabHistories.set(previousTabOID, { history: history.slice(), historyIndex });
+        }
+        if (source === "tab") {
+            const saved = tabHistories.get(oid);
+            history = saved ? saved.history.slice() : [oid];
+            historyIndex = saved ? saved.historyIndex : 0;
+            skipHistoryPush = false;
+        } else if (oid !== currentOID && source !== "navigate") {
             history = [oid];
             historyIndex = 0;
             skipHistoryPush = false;
         }
         if (source === "navigate") {
             const previousOID = activeTabOID;
+            if (previousOID && previousOID !== oid) {
+                const saved = tabHistories.get(previousOID) || { history: history.slice(), historyIndex };
+                tabHistories.delete(previousOID);
+                tabHistories.set(oid, saved);
+            }
             const pos = openTabs.indexOf(previousOID);
             if (pos >= 0) openTabs[pos] = oid;
             else openTabs.push(oid);
@@ -1643,6 +1659,9 @@ async function openDocument(oid, query, source) {
             }
         }
         skipHistoryPush = false;
+        if (activeTabOID) {
+            tabHistories.set(activeTabOID, { history: history.slice(), historyIndex });
+        }
         updateHistoryButtons();
 
         currentOID = oid;
