@@ -13,6 +13,9 @@ const KnowledgeMap = (() => {
     let getCurrentOID = () => null;
     let selectedKey = null;
     let connectedKeys = new Set();
+    let selectionHistory = [];
+    let selectionHistoryIndex = -1;
+    let onHistoryChange = () => {};
     let transform = { x: 0, y: 0, scale: 1 };
     let bounds = { width: 1200, height: 800 };
     let nodesByKey = new Map();
@@ -28,8 +31,7 @@ const KnowledgeMap = (() => {
         initialized = true;
         getCollections = options.getCollections;
         getCurrentOID = options.getCurrentOID;
-        $("knowledgeMapBack").addEventListener("click", close);
-        $("knowledgeMapFit").addEventListener("click", fit);
+        onHistoryChange = options.onHistoryChange || (() => {});
         const canvas = $("knowledgeMapCanvas");
         canvas.addEventListener("wheel", onWheel, { passive: false });
         canvas.addEventListener("pointerdown", onPointerDown);
@@ -44,8 +46,13 @@ const KnowledgeMap = (() => {
         $("knowledgeMapPopoverClose").addEventListener("click", hidePopover);
         document.addEventListener("keydown", (event) => {
             if (event.key === "Escape" && $("knowledgeMap").classList.contains("is-open")) {
-                if (!$("knowledgeMapPopover").hidden) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (selectedKey !== null) {
+                    selectedKey = null;
                     hidePopover();
+                    render();
+                    updateHistoryButtons();
                     return;
                 }
                 close();
@@ -59,12 +66,15 @@ const KnowledgeMap = (() => {
         const map = $("knowledgeMap");
         map.classList.add("is-open");
         map.setAttribute("aria-hidden", "false");
-        const currentOID = getCurrentOID();
-        selectedKey = currentOID ? "doc:" + currentOID : selectedKey;
+        selectedKey = null;
+        selectionHistory = [];
+        selectionHistoryIndex = -1;
         hidePopover();
+        $("mainScreen").classList.add("knowledge-map-open");
         render();
         requestAnimationFrame(fit);
         $("knowledgeMapCanvas").focus({ preventScroll: true });
+        updateHistoryButtons();
     }
 
     function close() {
@@ -297,20 +307,56 @@ const KnowledgeMap = (() => {
 
         group.addEventListener("click", (event) => {
             event.stopPropagation();
-            selectedKey = node.key;
-            render();
+            selectNode(node);
             showPopover(node, event.clientX, event.clientY);
         });
         group.addEventListener("keydown", (event) => {
             if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
-                selectedKey = node.key;
-                render();
+                selectNode(node);
                 const rect = group.getBoundingClientRect();
                 showPopover(node, rect.left + rect.width / 2, rect.top + rect.height / 2);
             }
         });
         return group;
+    }
+
+    function selectNode(node) {
+        if (selectionHistoryIndex < selectionHistory.length - 1) {
+            selectionHistory = selectionHistory.slice(0, selectionHistoryIndex + 1);
+        }
+        if (selectionHistory[selectionHistory.length - 1] !== node.key) {
+            selectionHistory.push(node.key);
+            selectionHistoryIndex = selectionHistory.length - 1;
+        }
+        selectedKey = node.key;
+        render();
+        updateHistoryButtons();
+    }
+
+    function goBack() {
+        if (selectionHistoryIndex <= 0) return;
+        selectionHistoryIndex--;
+        selectedKey = selectionHistory[selectionHistoryIndex];
+        hidePopover();
+        render();
+        updateHistoryButtons();
+    }
+
+    function goForward() {
+        if (selectionHistoryIndex >= selectionHistory.length - 1) return;
+        selectionHistoryIndex++;
+        selectedKey = selectionHistory[selectionHistoryIndex];
+        hidePopover();
+        render();
+        updateHistoryButtons();
+    }
+
+    function updateHistoryButtons() {
+        onHistoryChange({
+            canGoBack: selectionHistoryIndex > 0,
+            canGoForward: selectionHistoryIndex >= 0 && selectionHistoryIndex < selectionHistory.length - 1,
+        });
     }
 
     function showPopover(node, clientX, clientY) {
@@ -415,5 +461,7 @@ const KnowledgeMap = (() => {
         $("knowledgeMapCanvas").classList.remove("is-panning");
     }
 
-    return { init, open, close };
+    function isOpen() { return $("knowledgeMap").classList.contains("is-open"); }
+
+    return { init, open, close, goBack, goForward, isOpen };
 })();
