@@ -11,9 +11,8 @@ const KnowledgeMap = (() => {
 
     let getCollections = () => [];
     let getCurrentOID = () => null;
-    let openDocument = async () => {};
-    let selectedOID = null;
-    let searchQuery = "";
+    let selectedKey = null;
+    let connectedKeys = new Set();
     let transform = { x: 0, y: 0, scale: 1 };
     let bounds = { width: 1200, height: 800 };
     let nodesByKey = new Map();
@@ -29,29 +28,8 @@ const KnowledgeMap = (() => {
         initialized = true;
         getCollections = options.getCollections;
         getCurrentOID = options.getCurrentOID;
-        openDocument = options.openDocument;
-
         $("knowledgeMapBack").addEventListener("click", close);
         $("knowledgeMapFit").addEventListener("click", fit);
-        $("knowledgeMapSearch").addEventListener("input", (event) => {
-            searchQuery = event.target.value.trim().toLocaleLowerCase();
-            render();
-            if (searchQuery) focusFirstMatch();
-        });
-        $("knowledgeMapSearch").addEventListener("keydown", (event) => {
-            if (event.key === "Enter") {
-                event.preventDefault();
-                focusFirstMatch();
-            }
-            if (event.key === "Escape") {
-                event.stopPropagation();
-                event.target.value = "";
-                searchQuery = "";
-                render();
-                hidePopover();
-            }
-        });
-
         const canvas = $("knowledgeMapCanvas");
         canvas.addEventListener("wheel", onWheel, { passive: false });
         canvas.addEventListener("pointerdown", onPointerDown);
@@ -62,12 +40,6 @@ const KnowledgeMap = (() => {
             if (!event.target.closest(".knowledge-map-node") && !event.target.closest(".knowledge-map-popover")) {
                 hidePopover();
             }
-        });
-        canvas.addEventListener("dblclick", (event) => {
-            const node = event.target.closest("[data-oid]");
-            if (!node || !node.dataset.oid) return;
-            close();
-            void openDocument(node.dataset.oid);
         });
         $("knowledgeMapPopoverClose").addEventListener("click", hidePopover);
         document.addEventListener("keydown", (event) => {
@@ -87,9 +59,8 @@ const KnowledgeMap = (() => {
         const map = $("knowledgeMap");
         map.classList.add("is-open");
         map.setAttribute("aria-hidden", "false");
-        selectedOID = getCurrentOID() || selectedOID;
-        $("knowledgeMapSearch").value = "";
-        searchQuery = "";
+        const currentOID = getCurrentOID();
+        selectedKey = currentOID ? "doc:" + currentOID : selectedKey;
         hidePopover();
         render();
         requestAnimationFrame(fit);
@@ -203,6 +174,7 @@ const KnowledgeMap = (() => {
         const meta = $("knowledgeMapMeta");
         viewport.replaceChildren();
         nodesByKey = new Map();
+        connectedKeys = new Set();
 
         const documentCount = collections.reduce((sum, collection) => sum + countDocuments(collection.nodes), 0);
         meta.textContent = collections.length + " коллекций · " + documentCount + " документов";
@@ -246,19 +218,27 @@ const KnowledgeMap = (() => {
         nodes.forEach((node) => { node.x += offsetX; node.y += offsetY; });
         bounds = { width: maxX - minX + padding * 2, height: maxY - minY + padding * 2 };
 
-        edges.forEach(({ parent, child, collectionId }) => {
-            const actualParent = parent
-                ? nodesByKey.get(parent.key)
-                : nodesByKey.get("collection:" + collectionId);
-            const actualChild = nodesByKey.get(child.key);
-            if (actualParent && actualChild) drawEdge(viewport, actualParent, actualChild);
+        const resolvedEdges = edges.map(({ parent, child, collectionId }) => ({
+            parent: parent ? nodesByKey.get(parent.key) : nodesByKey.get("collection:" + collectionId),
+            child: nodesByKey.get(child.key),
+        })).filter((edge) => edge.parent && edge.child);
+
+        if (selectedKey) {
+            resolvedEdges.forEach(({ parent, child }) => {
+                if (parent.key === selectedKey) connectedKeys.add(child.key);
+                if (child.key === selectedKey) connectedKeys.add(parent.key);
+            });
+        }
+
+        resolvedEdges.forEach(({ parent, child }) => {
+            drawEdge(viewport, parent, child, parent.key === selectedKey || child.key === selectedKey);
         });
 
         nodes.forEach((node) => viewport.appendChild(renderNode(node)));
         applyTransform();
     }
 
-    function drawEdge(viewport, parent, child) {
+    function drawEdge(viewport, parent, child, connected) {
         const dx = child.x - parent.x;
         const dy = child.y - parent.y;
         const distance = Math.max(1, Math.hypot(dx, dy));
@@ -270,7 +250,7 @@ const KnowledgeMap = (() => {
         const y2 = child.y - dy / distance * end;
         const bend = Math.min(34, distance * .12);
         viewport.appendChild(svgElement("path", {
-            class: "knowledge-map-edge",
+            class: "knowledge-map-edge" + (connected ? " connected" : (selectedKey ? " dimmed" : "")),
             d: "M " + x1 + " " + y1 + " Q " + (x1 + dx / 2 - dy / distance * bend) + " " +
                 (y1 + dy / 2 + dx / distance * bend) + " " + x2 + " " + y2,
         }));
@@ -278,16 +258,16 @@ const KnowledgeMap = (() => {
 
     function renderNode(node) {
         const current = node.type === "document" && node.id === getCurrentOID();
-        const selected = node.type === "document" && node.id === selectedOID;
-        const matches = searchQuery && node.title.toLocaleLowerCase().includes(searchQuery);
+        const selected = node.key === selectedKey;
+        const related = connectedKeys.has(node.key);
         const group = svgElement("g", {
             class: "knowledge-map-node " + node.type + (current ? " current" : "") +
-                (selected ? " selected" : "") + (matches ? " search-match" : ""),
+                (selected ? " selected" : "") + (related ? " related" : "") +
+                (selectedKey && !selected && !related ? " dimmed" : ""),
             transform: "translate(" + node.x + " " + node.y + ")",
             tabindex: "0",
             role: "button",
             "aria-label": node.title,
-            "data-oid": node.type === "document" ? node.id : "",
             "data-node-key": node.key,
         });
 
@@ -317,14 +297,14 @@ const KnowledgeMap = (() => {
 
         group.addEventListener("click", (event) => {
             event.stopPropagation();
-            if (node.type === "document") selectedOID = node.id;
+            selectedKey = node.key;
             render();
             showPopover(node, event.clientX, event.clientY);
         });
         group.addEventListener("keydown", (event) => {
             if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
-                selectedOID = node.type === "document" ? node.id : null;
+                selectedKey = node.key;
                 render();
                 const rect = group.getBoundingClientRect();
                 showPopover(node, rect.left + rect.width / 2, rect.top + rect.height / 2);
@@ -379,38 +359,6 @@ const KnowledgeMap = (() => {
     function truncate(value, max) {
         const text = String(value || "");
         return text.length > max ? text.slice(0, max - 1) + "…" : text;
-    }
-
-    function findDocument(query) {
-        let match = null;
-        const visit = (items) => {
-            for (const node of items || []) {
-                if ((node.title || "").toLocaleLowerCase().includes(query)) {
-                    match = node;
-                    return true;
-                }
-                if (visit(node.children)) return true;
-            }
-            return false;
-        };
-        for (const collection of getCollections() || []) {
-            if (visit(collection.nodes)) break;
-        }
-        return match;
-    }
-
-    function focusFirstMatch() {
-        if (!searchQuery) return;
-        const match = findDocument(searchQuery);
-        if (!match) return;
-        selectedOID = match.oid;
-        render();
-        const node = nodesByKey.get("doc:" + match.oid);
-        if (!node) return;
-        const canvas = $("knowledgeMapCanvas");
-        transform.x = canvas.clientWidth / 2 - node.x * transform.scale;
-        transform.y = canvas.clientHeight / 2 - node.y * transform.scale;
-        applyTransform();
     }
 
     function fit() {
