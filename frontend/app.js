@@ -357,10 +357,15 @@ function bindUI() {
     $("settingsBtn").addEventListener("click", openSettings);
     KnowledgeMap.init({
         getCollections: () => collections,
-        getCurrentOID: () => currentOID,
-        onHistoryChange: ({ canGoBack, canGoForward }) => {
-            $("backBtn").disabled = !canGoBack;
-            $("forwardBtn").disabled = !canGoForward;
+        onHistoryChange: (state) => {
+            if (!state) {
+                $("backBtn").title = "Назад (Alt+←)";
+                $("forwardBtn").title = "Вперёд (Alt+→)";
+                updateHistoryButtons();
+                return;
+            }
+            $("backBtn").disabled = !state.canGoBack;
+            $("forwardBtn").disabled = !state.canGoForward;
             $("backBtn").title = "Предыдущий выбранный узел";
             $("forwardBtn").title = "Следующий выбранный узел";
         },
