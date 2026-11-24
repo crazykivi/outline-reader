@@ -6,6 +6,10 @@ const maxPrefValueLen = 64 << 10
 
 var prefKeys = map[string]bool{
 	"theme":          true,
+	"collapsedCollections": true,
+	"favoritesCollapsed": true,
+	"openTabs": true,
+	"activeTabOID": true,
 	"fullWidth":      true,
 	"fontScale":      true,
 	"sideWidth":      true,
