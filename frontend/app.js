@@ -1712,7 +1712,7 @@ async function openDocument(oid, query, source, targetTabID) {
             const previousID = activeTabOID;
             let nextTabID = oid;
             if (source === "navigate" && previousID && !isEmptyTab(previousID)) {
-                nextTabID = previousID;
+                nextTabID = getTabDocumentOID(previousID) === oid ? previousID : createDuplicateTabID(oid);
             } else if (previousID && !isEmptyTab(previousID)) {
                 if (getTabDocumentOID(previousID) === oid) nextTabID = previousID;
                 else nextTabID = openTabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid)
