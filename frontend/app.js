@@ -1331,6 +1331,11 @@ async function openDocument(oid, query, source) {
         const doc = await go().GetDocument(oid);
         if (requestID !== openRequestID) return;
         activeSource = source === "fav" ? "fav" : "tree";
+        if (oid !== currentOID && source !== "navigate") {
+            history = [oid];
+            historyIndex = 0;
+            skipHistoryPush = false;
+        }
         if (source === "navigate") {
             const pos = openTabs.indexOf(activeTabOID);
             if (pos >= 0) openTabs[pos] = oid;
