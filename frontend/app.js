@@ -358,6 +358,12 @@ function bindUI() {
     KnowledgeMap.init({
         getCollections: () => collections,
         getCurrentOID: () => currentOID,
+        onHistoryChange: ({ canGoBack, canGoForward }) => {
+            $("backBtn").disabled = !canGoBack;
+            $("forwardBtn").disabled = !canGoForward;
+            $("backBtn").title = "Предыдущий выбранный узел";
+            $("forwardBtn").title = "Следующий выбранный узел";
+        },
     });
     $("knowledgeMapBtn").addEventListener("click", () => {
         closeSideMenu();
@@ -1291,6 +1297,10 @@ function markActive() {
 }
 
 function goBack() {
+    if (KnowledgeMap.isOpen()) {
+        KnowledgeMap.goBack();
+        return;
+    }
     if (historyIndex <= 0) return;
     historyIndex--;
     skipHistoryPush = true;
@@ -1298,6 +1308,10 @@ function goBack() {
 }
 
 function goForward() {
+    if (KnowledgeMap.isOpen()) {
+        KnowledgeMap.goForward();
+        return;
+    }
     if (historyIndex >= history.length - 1) return;
     historyIndex++;
     skipHistoryPush = true;
@@ -1305,6 +1319,7 @@ function goForward() {
 }
 
 function updateHistoryButtons() {
+    if (typeof KnowledgeMap !== "undefined" && KnowledgeMap.isOpen()) return;
     $("backBtn").disabled = historyIndex <= 0;
     $("forwardBtn").disabled = historyIndex >= history.length - 1;
 }
