@@ -2,21 +2,19 @@
 
 const KnowledgeMap = (() => {
     const SVG_NS = "http://www.w3.org/2000/svg";
-    const NODE_WIDTH = 232;
-    const NODE_HEIGHT = 58;
-    const LEVEL_GAP = 286;
-    const ROW_GAP = 92;
-    const COLLECTION_GAP = 110;
+    const NODE_RADIUS = 8;
+    const COLLECTION_RADIUS = 17;
+    const LEVEL_GAP = 150;
+    const COLLECTION_RADIUS_FROM_CENTER = 130;
+    const LABEL_GAP = 14;
 
     let getCollections = () => [];
     let getCurrentOID = () => null;
     let openDocument = async () => {};
     let selectedOID = null;
-    let expanded = new Set();
-    let collapsedCollections = new Set();
     let searchQuery = "";
-    let transform = { x: 48, y: 48, scale: 1 };
-    let bounds = { width: 1000, height: 700 };
+    let transform = { x: 0, y: 0, scale: 1 };
+    let bounds = { width: 1200, height: 800 };
     let nodesByKey = new Map();
     let renderScheduled = false;
     let resizeObserver = null;
@@ -34,7 +32,6 @@ const KnowledgeMap = (() => {
 
         $("knowledgeMapBack").addEventListener("click", close);
         $("knowledgeMapFit").addEventListener("click", fit);
-        $("knowledgeMapCollapse").addEventListener("click", collapseAll);
         $("knowledgeMapOpen").addEventListener("click", openSelected);
         $("knowledgeMapSearch").addEventListener("input", (event) => {
             searchQuery = event.target.value.trim().toLocaleLowerCase();
@@ -76,7 +73,6 @@ const KnowledgeMap = (() => {
         map.classList.add("is-open");
         map.setAttribute("aria-hidden", "false");
         selectedOID = getCurrentOID() || selectedOID;
-        if (selectedOID) expandPath(selectedOID);
         $("knowledgeMapSearch").value = "";
         searchQuery = "";
         render();
@@ -85,15 +81,8 @@ const KnowledgeMap = (() => {
     }
 
     function close() {
-        const map = $("knowledgeMap");
-        map.classList.remove("is-open");
-        map.setAttribute("aria-hidden", "true");
-    }
-
-    function collapseAll() {
-        expanded.clear();
-        render();
-        fit();
+        $("knowledgeMap").classList.remove("is-open");
+        $("knowledgeMap").setAttribute("aria-hidden", "true");
     }
 
     function scheduleRender() {
@@ -112,9 +101,19 @@ const KnowledgeMap = (() => {
         return element;
     }
 
-    function leafCount(node) {
-        if (!node.children || !node.children.length || !expanded.has(node.oid)) return 1;
-        return node.children.reduce((sum, child) => sum + leafCount(child), 0);
+    function countDocuments(collections) {
+        let total = 0;
+        const walk = (nodes) => (nodes || []).forEach((node) => {
+            total++;
+            walk(node.children);
+        });
+        collections.forEach((collection) => walk(collection.nodes));
+        return total;
+    }
+
+    function subtreeWeight(node) {
+        if (!node.children || !node.children.length) return 1;
+        return node.children.reduce((sum, child) => sum + subtreeWeight(child), 0);
     }
 
     function render() {
@@ -127,80 +126,76 @@ const KnowledgeMap = (() => {
 
         const documentCount = countDocuments(collections);
         meta.textContent = collections.length + " коллекций · " + documentCount + " документов";
-        empty.hidden = collections.length > 0;
-        $("knowledgeMapCollapse").disabled = expanded.size === 0;
-        $("knowledgeMapOpen").disabled = !selectedOID || !nodesByKey.has("doc:" + selectedOID);
+        empty.hidden = documentCount > 0;
 
-        if (!collections.length) {
-            bounds = { width: 900, height: 600 };
-            applyTransform();
+        if (!documentCount) {
+            bounds = { width: 1200, height: 800 };
             updateInspector();
+            applyTransform();
             return;
         }
 
-        const edges = [];
         const nodes = [];
-        let cursorY = 50;
+        const edges = [];
+        const center = { x: 0, y: 0 };
+        const weights = collections.map((collection) =>
+            (collection.nodes || []).reduce((sum, node) => sum + subtreeWeight(node), 0)
+        );
+        const totalWeight = Math.max(1, weights.reduce((sum, weight) => sum + weight, 0));
+        let angleCursor = -Math.PI / 2;
 
-        collections.forEach((collection) => {
+        collections.forEach((collection, index) => {
             const roots = collection.nodes || [];
-            const isCollapsed = collapsedCollections.has(collection.id);
-            const rows = isCollapsed ? 1 : roots.reduce((sum, node) => sum + leafCount(node), 0);
-            const collectionHeight = Math.max(1, rows) * ROW_GAP;
-            const centerY = cursorY + collectionHeight / 2;
+            const weight = Math.max(1, weights[index]);
+            const sector = Math.PI * 2 * weight / totalWeight;
+            const collectionAngle = angleCursor + sector / 2;
             const collectionNode = {
                 key: "collection:" + collection.id,
                 type: "collection",
                 id: collection.id,
                 title: collection.name,
-                subtitle: roots.length + (roots.length === 1 ? " документ верхнего уровня" : " документов верхнего уровня"),
-                x: 38,
-                y: centerY - NODE_HEIGHT / 2,
-                depth: 0,
-                childrenCount: roots.length,
-                isCollapsed,
+                x: center.x + Math.cos(collectionAngle) * COLLECTION_RADIUS_FROM_CENTER,
+                y: center.y + Math.sin(collectionAngle) * COLLECTION_RADIUS_FROM_CENTER,
+                radius: COLLECTION_RADIUS,
             };
             nodes.push(collectionNode);
 
-            let row = 0;
-            const placeDocument = (doc, parent, depth) => {
-                const count = leafCount(doc);
-                const y = cursorY + (row + count / 2) * ROW_GAP - NODE_HEIGHT / 2;
-                const node = {
-                    key: "doc:" + doc.oid,
-                    type: "document",
-                    id: doc.oid,
-                    title: doc.title || "Без названия",
-                    subtitle: depth === 1 ? collection.name : "Вложенный документ",
-                    x: 38 + depth * LEVEL_GAP,
-                    y,
-                    depth,
-                    childrenCount: (doc.children || []).length,
-                };
-                nodes.push(node);
-                edges.push({ parent, child: node });
-                if (doc.children && doc.children.length && expanded.has(doc.oid)) {
-                    doc.children.forEach((child) => placeDocument(child, node, depth + 1));
-                } else {
-                    row += count;
-                }
-            };
-            if (!isCollapsed) roots.forEach((doc) => placeDocument(doc, collectionNode, 1));
-            cursorY += collectionHeight + COLLECTION_GAP;
+            let rootCursor = angleCursor;
+            roots.forEach((root) => {
+                const rootWeight = subtreeWeight(root);
+                const rootSector = sector * rootWeight / weight;
+                const rootAngle = rootCursor + rootSector / 2;
+                placeDocument(root, collectionNode, 1, rootAngle, rootSector, nodes, edges);
+                rootCursor += rootSector;
+            });
+            angleCursor += sector;
         });
 
-        const maxX = nodes.reduce((max, node) => Math.max(max, node.x + NODE_WIDTH), 0);
-        bounds = { width: maxX + 90, height: Math.max(cursorY + 20, 500) };
+        const padding = 180;
+        const minX = Math.min(...nodes.map((node) => node.x - (node.radius || NODE_RADIUS)));
+        const maxX = Math.max(...nodes.map((node) => node.x + (node.radius || NODE_RADIUS)));
+        const minY = Math.min(...nodes.map((node) => node.y - (node.radius || NODE_RADIUS)));
+        const maxY = Math.max(...nodes.map((node) => node.y + (node.radius || NODE_RADIUS)));
+        const offsetX = padding - minX;
+        const offsetY = padding - minY;
+        nodes.forEach((node) => { node.x += offsetX; node.y += offsetY; });
+        bounds = { width: maxX - minX + padding * 2, height: maxY - minY + padding * 2 };
 
         edges.forEach(({ parent, child }) => {
-            const x1 = parent.x + NODE_WIDTH;
-            const y1 = parent.y + NODE_HEIGHT / 2;
-            const x2 = child.x;
-            const y2 = child.y + NODE_HEIGHT / 2;
-            const middle = x1 + Math.max(32, (x2 - x1) * .48);
+            const dx = child.x - parent.x;
+            const dy = child.y - parent.y;
+            const distance = Math.max(1, Math.hypot(dx, dy));
+            const start = (parent.radius || NODE_RADIUS) + 2;
+            const end = (child.radius || NODE_RADIUS) + 2;
+            const x1 = parent.x + dx / distance * start;
+            const y1 = parent.y + dy / distance * start;
+            const x2 = child.x - dx / distance * end;
+            const y2 = child.y - dy / distance * end;
+            const bend = Math.min(44, distance * .22);
             viewport.appendChild(svgElement("path", {
                 class: "knowledge-map-edge",
-                d: "M " + x1 + " " + y1 + " C " + middle + " " + y1 + ", " + middle + " " + y2 + ", " + x2 + " " + y2,
+                d: "M " + x1 + " " + y1 + " Q " + (x1 + dx / 2 - dy / distance * bend) + " " +
+                    (y1 + dy / 2 + dx / distance * bend) + " " + x2 + " " + y2,
             }));
         });
 
@@ -214,14 +209,31 @@ const KnowledgeMap = (() => {
         applyTransform();
     }
 
-    function countDocuments(collections) {
-        let total = 0;
-        const walk = (nodes) => (nodes || []).forEach((node) => {
-            total++;
-            walk(node.children);
+    function placeDocument(doc, parent, depth, angle, sector, nodes, edges) {
+        const distance = LEVEL_GAP * depth;
+        const node = {
+            key: "doc:" + doc.oid,
+            type: "document",
+            id: doc.oid,
+            title: doc.title || "Без названия",
+            x: parent.x + Math.cos(angle) * distance,
+            y: parent.y + Math.sin(angle) * distance,
+            radius: NODE_RADIUS,
+            depth,
+        };
+        nodes.push(node);
+        edges.push({ parent, child: node });
+
+        const children = doc.children || [];
+        if (!children.length) return;
+        let childCursor = angle - sector / 2;
+        const childWeight = children.reduce((sum, child) => sum + subtreeWeight(child), 0);
+        children.forEach((child) => {
+            const childSector = sector * subtreeWeight(child) / Math.max(1, childWeight);
+            const childAngle = childCursor + childSector / 2;
+            placeDocument(child, node, depth + 1, childAngle, childSector, nodes, edges);
+            childCursor += childSector;
         });
-        collections.forEach((collection) => walk(collection.nodes));
-        return total;
     }
 
     function renderNode(node) {
@@ -237,47 +249,29 @@ const KnowledgeMap = (() => {
             "aria-label": node.title,
             "data-oid": node.type === "document" ? node.id : "",
         });
-        group.appendChild(svgElement("rect", { class: "node-card", x: 0, y: 0, width: NODE_WIDTH, height: NODE_HEIGHT, rx: 10 }));
-        group.appendChild(svgElement("rect", { class: "node-marker", x: 12, y: 14, width: 4, height: 30, rx: 2 }));
-        group.appendChild(svgElement("text", { class: "node-title", x: 26, y: 25 }, truncate(node.title, 29)));
-        group.appendChild(svgElement("text", { class: "node-subtitle", x: 26, y: 43 }, truncate(node.subtitle, 34)));
 
-        if (node.childrenCount > 0) {
-            const isExpanded = node.type === "collection" ? !node.isCollapsed : expanded.has(node.id);
-            const toggleAttribute = node.type === "collection" ? "data-toggle-collection" : "data-toggle";
-            group.appendChild(svgElement("circle", {
-                class: "node-toggle", cx: NODE_WIDTH - 16, cy: NODE_HEIGHT / 2, r: 11,
-                [toggleAttribute]: node.id,
-            }));
+        group.appendChild(svgElement("circle", {
+            class: "node-dot",
+            cx: 0, cy: 0, r: node.radius,
+        }));
+        const label = svgElement("text", {
+            class: "node-label",
+            x: node.radius + LABEL_GAP,
+            y: 4,
+        }, truncate(node.title, 34));
+        group.appendChild(label);
+
+        if (node.type === "collection") {
             group.appendChild(svgElement("text", {
-                class: "node-toggle-text", x: NODE_WIDTH - 16, y: NODE_HEIGHT / 2 + .5,
-                [toggleAttribute]: node.id,
-            }, isExpanded ? "−" : "+"));
-            group.appendChild(svgElement("text", {
-                class: "node-subtitle", x: NODE_WIDTH - 34, y: NODE_HEIGHT / 2 + 3, "text-anchor": "end",
-            }, String(node.childrenCount)));
+                class: "node-label collection-label",
+                x: 0, y: COLLECTION_RADIUS + 22, "text-anchor": "middle",
+            }, truncate(node.title, 30)));
         }
 
-        group.addEventListener("click", (event) => {
-            const collectionToggle = event.target.closest("[data-toggle-collection]");
-            if (collectionToggle) {
-                const id = collectionToggle.getAttribute("data-toggle-collection");
-                if (collapsedCollections.has(id)) collapsedCollections.delete(id);
-                else collapsedCollections.add(id);
-                render();
-                return;
-            }
-            const toggle = event.target.closest("[data-toggle]");
-            if (toggle) {
-                const oid = toggle.getAttribute("data-toggle");
-                if (expanded.has(oid)) expanded.delete(oid); else expanded.add(oid);
-                render();
-                return;
-            }
-            if (node.type === "document") {
-                selectedOID = node.id;
-                render();
-            }
+        group.addEventListener("click", () => {
+            if (node.type !== "document") return;
+            selectedOID = node.id;
+            render();
         });
         group.addEventListener("keydown", (event) => {
             if (event.key === "Enter" || event.key === " ") {
@@ -312,11 +306,11 @@ const KnowledgeMap = (() => {
         }
         const icon = document.createElement("span");
         icon.className = "knowledge-map-selection-icon";
-        icon.textContent = "▤";
+        icon.textContent = "●";
         const title = document.createElement("strong");
         title.textContent = node.title;
         const description = document.createElement("p");
-        description.textContent = node.subtitle;
+        description.textContent = "Документ · выберите узел или откройте его двойным щелчком";
         selection.append(icon, title, description);
         button.disabled = false;
     }
@@ -325,24 +319,6 @@ const KnowledgeMap = (() => {
         if (!selectedOID || !nodesByKey.has("doc:" + selectedOID)) return;
         close();
         await openDocument(selectedOID);
-    }
-
-    function expandPath(oid) {
-        const visit = (nodes, ancestors) => {
-            for (const node of nodes || []) {
-                if (node.oid === oid) {
-                    ancestors.forEach((id) => expanded.add(id));
-                    return true;
-                }
-                if (visit(node.children, [...ancestors, node.oid])) return true;
-            }
-            return false;
-        };
-        (getCollections() || []).some((collection) => {
-            const found = visit(collection.nodes, []);
-            if (found) collapsedCollections.delete(collection.id);
-            return found;
-        });
     }
 
     function findDocument(query) {
@@ -368,13 +344,12 @@ const KnowledgeMap = (() => {
         const match = findDocument(searchQuery);
         if (!match) return;
         selectedOID = match.oid;
-        expandPath(match.oid);
         render();
-        const positioned = nodesByKey.get("doc:" + match.oid);
-        if (!positioned) return;
+        const node = nodesByKey.get("doc:" + match.oid);
+        if (!node) return;
         const canvas = $("knowledgeMapCanvas");
-        transform.x = canvas.clientWidth / 2 - (positioned.x + NODE_WIDTH / 2) * transform.scale;
-        transform.y = canvas.clientHeight / 2 - (positioned.y + NODE_HEIGHT / 2) * transform.scale;
+        transform.x = canvas.clientWidth / 2 - node.x * transform.scale;
+        transform.y = canvas.clientHeight / 2 - node.y * transform.scale;
         applyTransform();
     }
 
@@ -382,11 +357,11 @@ const KnowledgeMap = (() => {
         const canvas = $("knowledgeMapCanvas");
         if (!canvas.clientWidth || !canvas.clientHeight) return;
         const scale = Math.min(
-            (canvas.clientWidth - 100) / bounds.width,
-            (canvas.clientHeight - 100) / bounds.height,
+            (canvas.clientWidth - 120) / bounds.width,
+            (canvas.clientHeight - 120) / bounds.height,
             1
         );
-        transform.scale = Math.max(.18, Math.min(1, scale));
+        transform.scale = Math.max(.12, Math.min(1, scale));
         transform.x = (canvas.clientWidth - bounds.width * transform.scale) / 2;
         transform.y = (canvas.clientHeight - bounds.height * transform.scale) / 2;
         applyTransform();
@@ -402,7 +377,7 @@ const KnowledgeMap = (() => {
         const rect = $("knowledgeMapCanvas").getBoundingClientRect();
         const px = event.clientX - rect.left;
         const py = event.clientY - rect.top;
-        const next = Math.max(.18, Math.min(2.2, transform.scale * (event.deltaY < 0 ? 1.12 : .89)));
+        const next = Math.max(.12, Math.min(2.5, transform.scale * (event.deltaY < 0 ? 1.12 : .89)));
         const ratio = next / transform.scale;
         transform.x = px - (px - transform.x) * ratio;
         transform.y = py - (py - transform.y) * ratio;
