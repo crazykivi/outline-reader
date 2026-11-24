@@ -879,6 +879,7 @@ async function loadTree() {
     try {
         collections = await go().GetTree();
         buildIndex();
+        renderTabs();
         await refreshFavorites();
         if (currentOID) expandAncestors(currentOID);
         renderTree();
@@ -1124,14 +1125,14 @@ function goBack() {
     if (historyIndex <= 0) return;
     historyIndex--;
     skipHistoryPush = true;
-    openDocument(history[historyIndex]);
+    openDocument(history[historyIndex], undefined, "navigate");
 }
 
 function goForward() {
     if (historyIndex >= history.length - 1) return;
     historyIndex++;
     skipHistoryPush = true;
-    openDocument(history[historyIndex]);
+    openDocument(history[historyIndex], undefined, "navigate");
 }
 
 function updateHistoryButtons() {
@@ -1148,9 +1149,8 @@ async function restoreOpenTabs() {
     renderTabs();
     if (!openTabs.length) return;
     const target = activeTabOID || openTabs[openTabs.length - 1];
-    try {
-        await openDocument(target, undefined, "tab");
-    } catch (e) {
+    await openDocument(target, undefined, "tab");
+    if (currentOID !== target) {
         openTabs = openTabs.filter((id) => id !== target);
         activeTabOID = openTabs[openTabs.length - 1] || null;
         saveOpenTabs();
@@ -1327,6 +1327,7 @@ async function openDocument(oid, query, source) {
             const pos = openTabs.indexOf(activeTabOID);
             if (pos >= 0) openTabs[pos] = oid;
             else openTabs.push(oid);
+            openTabs = [...new Set(openTabs)];
             activeTabOID = oid;
         } else {
             if (!openTabs.includes(oid)) openTabs.push(oid);
