@@ -358,7 +358,6 @@ function bindUI() {
     KnowledgeMap.init({
         getCollections: () => collections,
         getCurrentOID: () => currentOID,
-        openDocument: (oid) => openDocument(oid, undefined, "navigate"),
     });
     $("knowledgeMapBtn").addEventListener("click", () => {
         closeSideMenu();
