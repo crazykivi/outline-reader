@@ -395,9 +395,17 @@ function bindUI() {
         searchTimer = setTimeout(() => runSearch(q), 250);
     });
     $("searchInput").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            clearTimeout(searchTimer);
+            const q = $("searchInput").value.trim();
+            if (q.length < 2) renderTree();
+            else runSearch(q);
+        }
         if (e.key === "Escape") {
             e.stopPropagation();
             $("searchInput").value = "";
+            clearTimeout(searchTimer);
             renderTree();
             $("searchInput").blur();
         }
