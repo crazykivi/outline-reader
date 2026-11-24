@@ -964,7 +964,7 @@ function renderTree() {
     }
     for (const col of collections) {
         const sec = document.createElement("section");
-        const h = document.createElement("div");
+        const h = document.createElement("button");
         h.className = "collection-title";
         h.type = "button";
         h.setAttribute("aria-expanded", String(!collapsedCollections.has(col.id)));
