@@ -254,18 +254,17 @@ const KnowledgeMap = (() => {
             class: "node-dot",
             cx: 0, cy: 0, r: node.radius,
         }));
-        const label = svgElement("text", {
-            class: "node-label",
-            x: node.radius + LABEL_GAP,
-            y: 4,
-        }, truncate(node.title, 34));
-        group.appendChild(label);
-
         if (node.type === "collection") {
             group.appendChild(svgElement("text", {
                 class: "node-label collection-label",
                 x: 0, y: COLLECTION_RADIUS + 22, "text-anchor": "middle",
             }, truncate(node.title, 30)));
+        } else {
+            group.appendChild(svgElement("text", {
+                class: "node-label",
+                x: node.radius + LABEL_GAP,
+                y: 4,
+            }, truncate(node.title, 34)));
         }
 
         group.addEventListener("click", () => {
