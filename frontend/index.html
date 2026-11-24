@@ -483,11 +483,14 @@
                             <span id="statusText" class="status-text"></span>
                             <span id="syncDelta" class="sync-delta"></span>
                         </span>
-                        <button id="collapseAllBtn" class="btn-mini" title="Свернуть всё">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="m17 11-5-5-5 5M17 18l-5-5-5 5"></path>
+                        <button id="collapseAllBtn" class="tree-action" type="button" data-action="collapse"
+                            title="Свернуть все категории и вложенные документы" aria-label="Свернуть всё">
+                            <svg class="tree-action-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                                aria-hidden="true">
+                                <path d="m7 14 5-5 5 5M7 20l5-5 5 5"></path>
                             </svg>
+                            <span class="tree-action-label">Свернуть всё</span>
                         </button>
                     </div>
                     <div id="docTree" class="doc-tree"></div>
