@@ -218,6 +218,14 @@ function bindUI() {
             event.preventDefault();
         }
     }, { passive: false });
+    tabStrip.addEventListener("mousedown", (event) => {
+        if (event.button !== 1) return;
+        const tab = event.target.closest(".doc-tab");
+        if (!tab || !tabStrip.contains(tab)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeTab(tab.dataset.oid);
+    });
     document.querySelector(".header").addEventListener("mousedown", (e) => {
         if (e.button !== 0) return;
         if (window.wails && window.wails.flags && window.wails.flags.resizeEdge) return;
