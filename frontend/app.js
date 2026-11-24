@@ -10,6 +10,8 @@ const ICON_STAR = '<svg width="11" height="11" viewBox="0 0 24 24" fill="current
 let collections = [];
 let index = {};
 let expanded = new Set();
+let collapsedCollections = new Set();
+let favoritesCollapsed = false;
 let history = [];
 let historyIndex = -1;
 let skipHistoryPush = false;
@@ -20,7 +22,7 @@ let toastTimer = null, noticeTimer = null;
 let toastAction = null;
 let toastDuration = 4000;
 let updateCheckStarted = false;
-const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "expanded", "tocOpen", "captureProtect"];
+const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect"];
 let prefsReady = false;
 let prefsTimer = null;
 const prefsDirty = new Map();
@@ -70,6 +72,8 @@ async function loadPrefs() {
     applyFontScale(scale);
     tocOpen = prefGet("tocOpen") === "1";
     try { expanded = new Set(JSON.parse(prefGet("expanded", "[]"))); } catch (e) { expanded = new Set(); }
+    try { collapsedCollections = new Set(JSON.parse(prefGet("collapsedCollections", "[]"))); } catch (e) { collapsedCollections = new Set(); }
+    favoritesCollapsed = prefGet("favoritesCollapsed", "false") === "true";
     const w = parseInt(prefGet("sideWidth", "300"), 10);
     const sidebar = document.querySelector(".sidebar");
     if (sidebar && w >= 220 && w <= 480) {
@@ -114,6 +118,8 @@ const find = {
 const FIND_LIMIT = 10000;
 
 try { expanded = new Set(JSON.parse(prefGet("expanded", "[]"))); } catch (e) { }
+try { collapsedCollections = new Set(JSON.parse(prefGet("collapsedCollections", "[]"))); } catch (e) { }
+favoritesCollapsed = prefGet("favoritesCollapsed", "false") === "true";
 if (!(fontScale >= 0.7 && fontScale <= 2.0)) fontScale = 1;
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -200,9 +206,25 @@ function bindUI() {
         applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
     });
     $("collapseAllBtn").addEventListener("click", () => {
-        expanded.clear();
-        saveExpanded();
+        if (!collections.length) return;
+
+        const shouldCollapse = collections.some((col) => !collapsedCollections.has(col.id));
+        collapsedCollections = shouldCollapse
+            ? new Set(collections.map((col) => col.id))
+            : new Set();
+
+        // The global collapse action also resets the document tree.
+        // Individual collection toggles intentionally preserve expanded nodes.
+        if (shouldCollapse) {
+            expanded.clear();
+            saveExpanded();
+        }
+
+        saveCollapsedCollections();
+        const sidebar = document.querySelector(".sidebar");
+        const scroll = sidebar.scrollTop;
         renderTree();
+        sidebar.scrollTop = scroll;
     });
     $("closeNotification").addEventListener("click", hideNotice);
     const toast = $("toast");
@@ -864,7 +886,7 @@ function buildIndex() {
     for (const col of collections) {
         const walk = (nodes, parent) => {
             for (const n of nodes || []) {
-                index[n.oid] = { title: n.title, parent, colName: col.name };
+                index[n.oid] = { title: n.title, parent, colName: col.name, collectionID: col.id };
                 walk(n.children, n.oid);
             }
         };
@@ -906,10 +928,33 @@ function pluralDocs(n) {
 
 function saveExpanded() { prefSet("expanded", JSON.stringify([...expanded])); }
 
+function saveCollapsedCollections() {
+    prefSet("collapsedCollections", JSON.stringify([...collapsedCollections]));
+}
+
 function expandAncestors(oid) {
-    let p = (index[oid] || {}).parent;
+    const item = index[oid];
+    if (item && item.collectionID) collapsedCollections.delete(item.collectionID);
+    let p = item ? item.parent : null;
     while (p) { expanded.add(p); p = (index[p] || {}).parent; }
     saveExpanded();
+    saveCollapsedCollections();
+}
+
+function updateCollapseAllButton() {
+    const btn = $("collapseAllBtn");
+    if (!btn) return;
+
+    const hasCollections = collections.length > 0;
+    const willCollapse = hasCollections && collections.some((col) => !collapsedCollections.has(col.id));
+    const action = willCollapse ? "collapse" : "expand";
+
+    btn.disabled = !hasCollections;
+    btn.dataset.action = action;
+    btn.title = willCollapse
+        ? "Свернуть все категории и вложенные документы"
+        : "Развернуть все категории (документы останутся свёрнутыми)";
+    btn.setAttribute("aria-label", btn.title);
 }
 
 function renderTree() {
@@ -920,14 +965,20 @@ function renderTree() {
         d.className = "tree-empty";
         d.textContent = "База пуста. Нажмите кнопку синхронизации в меню.";
         el.appendChild(d);
+        updateCollapseAllButton();
         return;
     }
     if (favorites.length) {
         const sec = document.createElement("section");
-        const h = document.createElement("div");
+        const h = document.createElement("button");
         h.className = "collection-title";
-        h.textContent = "Избранное";
+        h.type = "button";
+        h.setAttribute("aria-expanded", String(!favoritesCollapsed));
+        h.innerHTML = `<span class="collection-name"></span><span class="collection-chevron" aria-hidden="true"></span>`;
+        h.querySelector(".collection-name").textContent = "Избранное";
+        h.addEventListener("click", toggleFavorites);
         sec.appendChild(h);
+        if (!favoritesCollapsed) {
         const ul = document.createElement("ul");
         ul.className = "tree-list";
         for (const d of favorites) {
@@ -948,24 +999,54 @@ function renderTree() {
             ul.appendChild(li);
         }
         sec.appendChild(ul);
+        }
         el.appendChild(sec);
     }
     for (const col of collections) {
         const sec = document.createElement("section");
-        const h = document.createElement("div");
+        const h = document.createElement("button");
         h.className = "collection-title";
-        h.textContent = col.name;
+        h.type = "button";
+        h.setAttribute("aria-expanded", String(!collapsedCollections.has(col.id)));
+        h.innerHTML = `<span class="collection-name"></span><span class="collection-chevron" aria-hidden="true"></span>`;
+        h.querySelector(".collection-name").textContent = col.name;
+        h.addEventListener("click", () => toggleCollection(col.id));
         sec.appendChild(h);
-        sec.appendChild(renderNodes(col.nodes, 0));
+        if (!collapsedCollections.has(col.id)) sec.appendChild(renderNodes(col.nodes, 0));
         el.appendChild(sec);
     }
     updateStatus();
     markActive();
+    updateCollapseAllButton();
 }
 
 function toggleNode(oid) {
     expanded.has(oid) ? expanded.delete(oid) : expanded.add(oid);
     saveExpanded();
+    const sidebar = document.querySelector(".sidebar");
+    const scroll = sidebar.scrollTop;
+    renderTree();
+    sidebar.scrollTop = scroll;
+}
+
+function saveFavoritesCollapsed() {
+    prefSet("favoritesCollapsed", String(favoritesCollapsed));
+}
+
+function toggleFavorites() {
+    favoritesCollapsed = !favoritesCollapsed;
+    saveFavoritesCollapsed();
+    const sidebar = document.querySelector(".sidebar");
+    const scroll = sidebar.scrollTop;
+    renderTree();
+    sidebar.scrollTop = scroll;
+}
+
+function toggleCollection(collectionID) {
+    collapsedCollections.has(collectionID)
+        ? collapsedCollections.delete(collectionID)
+        : collapsedCollections.add(collectionID);
+    saveCollapsedCollections();
     const sidebar = document.querySelector(".sidebar");
     const scroll = sidebar.scrollTop;
     renderTree();
