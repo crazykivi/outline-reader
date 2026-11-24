@@ -246,14 +246,10 @@ const KnowledgeMap = (() => {
         nodes.forEach((node) => { node.x += offsetX; node.y += offsetY; });
         bounds = { width: maxX - minX + padding * 2, height: maxY - minY + padding * 2 };
 
-        edges.forEach(({ parent, child }) => {
-            if (!parent) {
-                const collection = nodesByKey.get("collection:" + collections.find((item) =>
-                    item.name === child.collectionTitle)?.id);
-                if (collection) drawEdge(viewport, collection, child);
-                return;
-            }
-            const actualParent = nodesByKey.get(parent.key);
+        edges.forEach(({ parent, child, collectionId }) => {
+            const actualParent = parent
+                ? nodesByKey.get(parent.key)
+                : nodesByKey.get("collection:" + collectionId);
             const actualChild = nodesByKey.get(child.key);
             if (actualParent && actualChild) drawEdge(viewport, actualParent, actualChild);
         });
