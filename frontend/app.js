@@ -213,6 +213,13 @@ function bindUI() {
             ? new Set(collections.map((col) => col.id))
             : new Set();
 
+        // The global collapse action also resets the document tree.
+        // Individual collection toggles intentionally preserve expanded nodes.
+        if (shouldCollapse) {
+            expanded.clear();
+            saveExpanded();
+        }
+
         saveCollapsedCollections();
         const sidebar = document.querySelector(".sidebar");
         const scroll = sidebar.scrollTop;
