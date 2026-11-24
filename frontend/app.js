@@ -1169,6 +1169,9 @@ function renderTabs() {
         const info = index[oid] || {};
         const tab = document.createElement("div");
         tab.className = "doc-tab" + (oid === activeTabOID ? " active" : "");
+        tab.setAttribute("role", "tab");
+        tab.setAttribute("aria-selected", String(oid === activeTabOID));
+        tab.tabIndex = oid === activeTabOID ? 0 : -1;
         tab.title = info.title || oid;
         const label = document.createElement("span");
         label.className = "doc-tab-title";
@@ -1181,10 +1184,18 @@ function renderTabs() {
         close.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
         close.addEventListener("click", (e) => { e.stopPropagation(); closeTab(oid); });
         tab.append(label, close);
-        tab.addEventListener("click", () => {
+        const activate = () => {
             if (oid !== currentOID) openDocument(oid, undefined, "tab");
+        };
+        tab.addEventListener("click", activate);
+        tab.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                activate();
+            }
         });
         bar.appendChild(tab);
+        if (oid === activeTabOID) tab.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
 }
 
@@ -1211,6 +1222,14 @@ function closeTab(oid) {
         $("welcomeScreen").style.display = "flex";
         $("tocBtn").disabled = true;
         $("favBtn").style.display = "none";
+        $("docLink").style.display = "none";
+        $("docCrumbs").innerHTML = "";
+        $("docContent").innerHTML = "";
+        $("docTitle").textContent = "";
+        $("docDate").textContent = "";
+        $("tocPanel").style.display = "none";
+        $("tocContent").innerHTML = "";
+        renderTree();
         closeFindBar(true);
     }
     saveOpenTabs();
