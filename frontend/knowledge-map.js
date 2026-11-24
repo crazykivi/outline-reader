@@ -10,6 +10,7 @@ const KnowledgeMap = (() => {
     const RING_GAP = 190;
 
     let getCollections = () => [];
+    let getCurrentOID = () => null;
     let selectedKey = null;
     let connectedKeys = new Set();
     let selectionHistory = [];
@@ -29,6 +30,7 @@ const KnowledgeMap = (() => {
         if (initialized) return;
         initialized = true;
         getCollections = options.getCollections;
+        getCurrentOID = options.getCurrentOID;
         onHistoryChange = options.onHistoryChange || (() => {});
         const canvas = $("knowledgeMapCanvas");
         canvas.addEventListener("wheel", onWheel, { passive: false });
