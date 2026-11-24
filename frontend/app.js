@@ -218,7 +218,7 @@ function bindUI() {
             event.preventDefault();
         }
     }, { passive: false });
-    tabStrip.addEventListener("auxclick", (event) => {
+    tabStrip.addEventListener("mousedown", (event) => {
         if (event.button !== 1) return;
         const tab = event.target.closest(".doc-tab");
         if (!tab || !tabStrip.contains(tab)) return;
