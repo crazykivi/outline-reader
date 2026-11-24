@@ -1448,13 +1448,13 @@ function renderTabs() {
             }
         });
         tab.addEventListener("dragstart", (event) => {
-            draggedTabOID = oid;
+            draggedTabOID = tabID;
             event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData("text/plain", oid);
+            event.dataTransfer.setData("text/plain", tabID);
             tab.classList.add("dragging");
         });
         tab.addEventListener("dragover", (event) => {
-            if (!draggedTabOID || draggedTabOID === oid) return;
+            if (!draggedTabOID || draggedTabOID === tabID) return;
             if (pinnedTabs.includes(draggedTabOID) !== isPinned) return;
             event.preventDefault();
             event.dataTransfer.dropEffect = "move";
@@ -1467,7 +1467,7 @@ function renderTabs() {
             if (!draggedTabOID || pinnedTabs.includes(draggedTabOID) !== isPinned) return;
             event.preventDefault();
             const after = event.clientX >= tab.getBoundingClientRect().left + tab.offsetWidth / 2;
-            reorderTab(draggedTabOID, oid, after);
+            reorderTab(draggedTabOID, tabID, after);
         });
         tab.addEventListener("dragend", () => {
             draggedTabOID = null;
