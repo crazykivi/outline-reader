@@ -20,6 +20,8 @@ let currentOID = null;
 let openTabs = [];
 let pinnedTabs = [];
 let activeTabOID = null;
+let emptyTabSequence = 0;
+const EMPTY_TAB_PREFIX = "__outline_reader_empty_tab__";
 let tabsRestored = false;
 let openRequestID = 0;
 let draggedTabOID = null;
@@ -1296,6 +1298,38 @@ function updateHistoryButtons() {
     $("forwardBtn").disabled = historyIndex >= history.length - 1;
 }
 
+function isEmptyTab(oid) {
+    return typeof oid === "string" && oid.startsWith(EMPTY_TAB_PREFIX);
+}
+
+function createEmptyTabID() {
+    let oid;
+    do {
+        oid = EMPTY_TAB_PREFIX + Date.now() + "_" + (++emptyTabSequence);
+    } while (openTabs.includes(oid));
+    return oid;
+}
+
+function activateEmptyTab(oid) {
+    if (!isEmptyTab(oid) || !openTabs.includes(oid)) return;
+    openRequestID++;
+    activeTabOID = oid;
+    clearActiveDocument();
+    saveOpenTabs();
+    renderTabs();
+}
+
+function createNewTab() {
+    const oid = createEmptyTabID();
+    openTabs.push(oid);
+    activeTabOID = oid;
+    clearActiveDocument();
+    saveOpenTabs();
+    renderTabs();
+    const plus = $("newTabBtn");
+    if (plus) plus.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
 function normalizeTabOrder() {
     const pinned = new Set(pinnedTabs);
     openTabs = [
@@ -1317,6 +1351,13 @@ async function restoreOpenTabs() {
     renderTabs();
     const candidates = [activeTabOID, ...openTabs.slice().reverse()].filter((id, i, all) => id && all.indexOf(id) === i);
     for (const target of candidates) {
+        if (isEmptyTab(target)) {
+            if (target === activeTabOID) {
+                activateEmptyTab(target);
+                return;
+            }
+            continue;
+        }
         await openDocument(target, undefined, "tab");
         if (currentOID === target) return;
         openTabs = openTabs.filter((id) => id !== target);
@@ -1334,7 +1375,8 @@ function renderTabs() {
     bar.innerHTML = "";
     bar.style.display = openTabs.length ? "flex" : "none";
     for (const oid of openTabs) {
-        const info = index[oid] || {};
+        const empty = isEmptyTab(oid);
+        const info = empty ? {} : (index[oid] || {});
         const isPinned = pinnedTabs.includes(oid);
         const tab = document.createElement("div");
         tab.className = "doc-tab" + (oid === activeTabOID ? " active" : "") + (isPinned ? " pinned" : "");
@@ -1354,7 +1396,7 @@ function renderTabs() {
 
         const label = document.createElement("span");
         label.className = "doc-tab-title";
-        label.textContent = info.title || oid;
+        label.textContent = empty ? "Новая вкладка" : (info.title || oid);
         tab.appendChild(label);
 
         if (!isPinned) {
@@ -1369,7 +1411,11 @@ function renderTabs() {
         }
 
         const activate = () => {
-            if (oid !== currentOID) openDocument(oid, undefined, "tab");
+            if (empty) {
+                if (oid !== activeTabOID) activateEmptyTab(oid);
+            } else if (oid !== currentOID) {
+                openDocument(oid, undefined, "tab");
+            }
         };
         tab.addEventListener("click", activate);
         tab.addEventListener("keydown", (event) => {
@@ -1407,6 +1453,16 @@ function renderTabs() {
         bar.appendChild(tab);
         if (oid === activeTabOID) tab.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
+
+    const add = document.createElement("button");
+    add.type = "button";
+    add.id = "newTabBtn";
+    add.className = "doc-tab-add";
+    add.title = "Новая вкладка";
+    add.setAttribute("aria-label", "Открыть новую вкладку");
+    add.textContent = "+";
+    add.addEventListener("click", createNewTab);
+    bar.appendChild(add);
 }
 
 function reorderTab(sourceOID, targetOID, after) {
@@ -1468,7 +1524,8 @@ function closeTab(oid) {
         if (activeTabOID) {
             saveOpenTabs();
             renderTabs();
-            openDocument(activeTabOID, undefined, "tab");
+            if (isEmptyTab(activeTabOID)) activateEmptyTab(activeTabOID);
+            else openDocument(activeTabOID, undefined, "tab");
             return;
         }
         clearActiveDocument();
@@ -1488,7 +1545,8 @@ function closeUnpinnedTabs() {
         if (activeTabOID) {
             saveOpenTabs();
             renderTabs();
-            openDocument(activeTabOID, undefined, "tab");
+            if (isEmptyTab(activeTabOID)) activateEmptyTab(activeTabOID);
+            else openDocument(activeTabOID, undefined, "tab");
             return;
         }
         clearActiveDocument();
