@@ -952,7 +952,6 @@ function updateCollapseAllButton() {
 
     btn.disabled = !hasCollections;
     btn.dataset.action = action;
-    btn.querySelector(".tree-action-label").textContent = label;
     btn.title = willCollapse
         ? "Свернуть все категории и вложенные документы"
         : "Развернуть все категории (документы останутся свёрнутыми)";
