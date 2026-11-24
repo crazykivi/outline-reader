@@ -14,11 +14,16 @@ let collapsedCollections = new Set();
 let favoritesCollapsed = false;
 let history = [];
 let historyIndex = -1;
+const tabHistories = new Map();
+const tabScrollPositions = new Map();
 let skipHistoryPush = false;
 let currentOID = null;
 let openTabs = [];
 let pinnedTabs = [];
 let activeTabOID = null;
+let emptyTabSequence = 0;
+const EMPTY_TAB_PREFIX = "__outline_reader_empty_tab__";
+const DUPLICATE_TAB_PREFIX = "__outline_reader_duplicate_tab__";
 let tabsRestored = false;
 let openRequestID = 0;
 let draggedTabOID = null;
@@ -1280,19 +1285,77 @@ function goBack() {
     if (historyIndex <= 0) return;
     historyIndex--;
     skipHistoryPush = true;
-    openDocument(history[historyIndex], undefined, "navigate");
+    openDocument(history[historyIndex], undefined, "navigate", activeTabOID);
 }
 
 function goForward() {
     if (historyIndex >= history.length - 1) return;
     historyIndex++;
     skipHistoryPush = true;
-    openDocument(history[historyIndex], undefined, "navigate");
+    openDocument(history[historyIndex], undefined, "navigate", activeTabOID);
 }
 
 function updateHistoryButtons() {
     $("backBtn").disabled = historyIndex <= 0;
     $("forwardBtn").disabled = historyIndex >= history.length - 1;
+}
+
+function isEmptyTab(oid) {
+    return typeof oid === "string" && oid.startsWith(EMPTY_TAB_PREFIX);
+}
+
+function getTabDocumentOID(tabID) {
+    if (isEmptyTab(tabID)) return null;
+    if (typeof tabID === "string" && tabID.startsWith(DUPLICATE_TAB_PREFIX)) {
+        const separator = tabID.indexOf(":", DUPLICATE_TAB_PREFIX.length);
+        if (separator < 0) return null;
+        try { return decodeURIComponent(tabID.slice(separator + 1)); } catch (e) { return null; }
+    }
+    return tabID;
+}
+
+function createDuplicateTabID(oid) {
+    let tabID;
+    do {
+        tabID = DUPLICATE_TAB_PREFIX + Date.now() + "_" + (++emptyTabSequence) + ":" + encodeURIComponent(oid);
+    } while (openTabs.includes(tabID));
+    return tabID;
+}
+
+function saveActiveTabScroll() {
+    if (!activeTabOID || isEmptyTab(activeTabOID)) return;
+    const viewer = document.querySelector(".viewer");
+    if (viewer) tabScrollPositions.set(activeTabOID, viewer.scrollTop);
+}
+
+function createEmptyTabID() {
+    let oid;
+    do {
+        oid = EMPTY_TAB_PREFIX + Date.now() + "_" + (++emptyTabSequence);
+    } while (openTabs.includes(oid));
+    return oid;
+}
+
+function activateEmptyTab(oid) {
+    if (!isEmptyTab(oid) || !openTabs.includes(oid)) return;
+    saveActiveTabScroll();
+    openRequestID++;
+    activeTabOID = oid;
+    clearActiveDocument();
+    saveOpenTabs();
+    renderTabs();
+}
+
+function createNewTab() {
+    saveActiveTabScroll();
+    const oid = createEmptyTabID();
+    openTabs.push(oid);
+    activeTabOID = oid;
+    clearActiveDocument();
+    saveOpenTabs();
+    renderTabs();
+    const plus = $("newTabBtn");
+    if (plus) plus.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 function normalizeTabOrder() {
@@ -1316,8 +1379,17 @@ async function restoreOpenTabs() {
     renderTabs();
     const candidates = [activeTabOID, ...openTabs.slice().reverse()].filter((id, i, all) => id && all.indexOf(id) === i);
     for (const target of candidates) {
-        await openDocument(target, undefined, "tab");
-        if (currentOID === target) return;
+        if (isEmptyTab(target)) {
+            if (target === activeTabOID) {
+                activateEmptyTab(target);
+                return;
+            }
+            continue;
+        }
+        const documentOID = getTabDocumentOID(target);
+        if (!documentOID) continue;
+        await openDocument(documentOID, undefined, "tab", target);
+        if (currentOID === documentOID && activeTabOID === target) return;
         openTabs = openTabs.filter((id) => id !== target);
         pinnedTabs = pinnedTabs.filter((id) => id !== target);
     }
@@ -1332,17 +1404,19 @@ function renderTabs() {
     normalizeTabOrder();
     bar.innerHTML = "";
     bar.style.display = openTabs.length ? "flex" : "none";
-    for (const oid of openTabs) {
-        const info = index[oid] || {};
-        const isPinned = pinnedTabs.includes(oid);
+    for (const tabID of openTabs) {
+        const empty = isEmptyTab(tabID);
+        const documentOID = getTabDocumentOID(tabID);
+        const info = empty ? {} : (index[documentOID] || {});
+        const isPinned = pinnedTabs.includes(tabID);
         const tab = document.createElement("div");
-        tab.className = "doc-tab" + (oid === activeTabOID ? " active" : "") + (isPinned ? " pinned" : "");
-        tab.dataset.oid = oid;
+        tab.className = "doc-tab" + (tabID === activeTabOID ? " active" : "") + (isPinned ? " pinned" : "");
+        tab.dataset.oid = tabID;
         tab.draggable = true;
         tab.setAttribute("role", "tab");
-        tab.setAttribute("aria-selected", String(oid === activeTabOID));
-        tab.tabIndex = oid === activeTabOID ? 0 : -1;
-        tab.title = info.title || oid;
+        tab.setAttribute("aria-selected", String(tabID === activeTabOID));
+        tab.tabIndex = tabID === activeTabOID ? 0 : -1;
+        tab.title = empty ? "Новая вкладка" : (info.title || documentOID);
 
         if (isPinned) {
             const pin = document.createElement("span");
@@ -1353,7 +1427,7 @@ function renderTabs() {
 
         const label = document.createElement("span");
         label.className = "doc-tab-title";
-        label.textContent = info.title || oid;
+        label.textContent = empty ? "Новая вкладка" : (info.title || documentOID);
         tab.appendChild(label);
 
         if (!isPinned) {
@@ -1363,12 +1437,16 @@ function renderTabs() {
             close.title = "Закрыть вкладку";
             close.setAttribute("aria-label", "Закрыть " + (info.title || "документ"));
             close.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
-            close.addEventListener("click", (event) => { event.stopPropagation(); closeTab(oid); });
+            close.addEventListener("click", (event) => { event.stopPropagation(); closeTab(tabID); });
             tab.appendChild(close);
         }
 
         const activate = () => {
-            if (oid !== currentOID) openDocument(oid, undefined, "tab");
+            if (empty) {
+                if (tabID !== activeTabOID) activateEmptyTab(tabID);
+            } else if (tabID !== activeTabOID) {
+                openDocument(documentOID, undefined, "tab", tabID);
+            }
         };
         tab.addEventListener("click", activate);
         tab.addEventListener("keydown", (event) => {
@@ -1378,13 +1456,13 @@ function renderTabs() {
             }
         });
         tab.addEventListener("dragstart", (event) => {
-            draggedTabOID = oid;
+            draggedTabOID = tabID;
             event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData("text/plain", oid);
+            event.dataTransfer.setData("text/plain", tabID);
             tab.classList.add("dragging");
         });
         tab.addEventListener("dragover", (event) => {
-            if (!draggedTabOID || draggedTabOID === oid) return;
+            if (!draggedTabOID || draggedTabOID === tabID) return;
             if (pinnedTabs.includes(draggedTabOID) !== isPinned) return;
             event.preventDefault();
             event.dataTransfer.dropEffect = "move";
@@ -1397,15 +1475,25 @@ function renderTabs() {
             if (!draggedTabOID || pinnedTabs.includes(draggedTabOID) !== isPinned) return;
             event.preventDefault();
             const after = event.clientX >= tab.getBoundingClientRect().left + tab.offsetWidth / 2;
-            reorderTab(draggedTabOID, oid, after);
+            reorderTab(draggedTabOID, tabID, after);
         });
         tab.addEventListener("dragend", () => {
             draggedTabOID = null;
             bar.querySelectorAll(".doc-tab").forEach((element) => element.classList.remove("dragging", "drop-before", "drop-after"));
         });
         bar.appendChild(tab);
-        if (oid === activeTabOID) tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+        if (tabID === activeTabOID) tab.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
+
+    const add = document.createElement("button");
+    add.type = "button";
+    add.id = "newTabBtn";
+    add.className = "doc-tab-add";
+    add.title = "Новая вкладка";
+    add.setAttribute("aria-label", "Открыть новую вкладку");
+    add.textContent = "+";
+    add.addEventListener("click", createNewTab);
+    bar.appendChild(add);
 }
 
 function reorderTab(sourceOID, targetOID, after) {
@@ -1461,12 +1549,15 @@ function closeTab(oid) {
     if (pos < 0) return;
     openTabs.splice(pos, 1);
     pinnedTabs = pinnedTabs.filter((id) => id !== oid);
+    tabHistories.delete(oid);
+    tabScrollPositions.delete(oid);
     if (activeTabOID === oid) {
         activeTabOID = openTabs[Math.min(pos, openTabs.length - 1)] || null;
         if (activeTabOID) {
             saveOpenTabs();
             renderTabs();
-            openDocument(activeTabOID, undefined, "tab");
+            if (isEmptyTab(activeTabOID)) activateEmptyTab(activeTabOID);
+            else openDocument(getTabDocumentOID(activeTabOID), undefined, "tab", activeTabOID);
             return;
         }
         clearActiveDocument();
@@ -1486,7 +1577,8 @@ function closeUnpinnedTabs() {
         if (activeTabOID) {
             saveOpenTabs();
             renderTabs();
-            openDocument(activeTabOID, undefined, "tab");
+            if (isEmptyTab(activeTabOID)) activateEmptyTab(activeTabOID);
+            else openDocument(getTabDocumentOID(activeTabOID), undefined, "tab", activeTabOID);
             return;
         }
         clearActiveDocument();
@@ -1603,61 +1695,78 @@ function paletteMove(dir) {
 
 /* ---------- Документ ---------- */
 
-async function openDocument(oid, query, source) {
+async function openDocument(oid, query, source, targetTabID) {
     const requestID = ++openRequestID;
     try {
         const doc = await go().GetDocument(oid);
         if (requestID !== openRequestID) return;
         activeSource = source === "fav" ? "fav" : "tree";
-        if (oid !== currentOID && source !== "navigate") {
-            history = [oid];
-            historyIndex = 0;
+
+        const previousTabID = activeTabOID;
+        const viewer = document.querySelector(".viewer");
+        if (previousTabID && previousTabID !== targetTabID && !isEmptyTab(previousTabID) && viewer) {
+            tabScrollPositions.set(previousTabID, viewer.scrollTop);
+        }
+
+        if (source === "tab") {
+            targetTabID = targetTabID || oid;
+            const saved = tabHistories.get(targetTabID);
+            history = saved ? saved.history.slice() : [oid];
+            historyIndex = saved ? saved.historyIndex : 0;
             skipHistoryPush = false;
-        }
-        if (source === "navigate") {
-            const previousOID = activeTabOID;
-            const pos = openTabs.indexOf(previousOID);
-            if (pos >= 0) openTabs[pos] = oid;
-            else openTabs.push(oid);
-            if (pinnedTabs.includes(previousOID)) {
-                pinnedTabs = pinnedTabs.map((id) => id === previousOID ? oid : id);
-            }
-            openTabs = [...new Set(openTabs)];
-            pinnedTabs = [...new Set(pinnedTabs)];
-            activeTabOID = oid;
+            if (!openTabs.includes(targetTabID)) openTabs.push(targetTabID);
+            activeTabOID = targetTabID;
         } else {
-            if (!openTabs.includes(oid)) openTabs.push(oid);
-            activeTabOID = oid;
+            const previousID = activeTabOID;
+            let nextTabID = oid;
+            if (source === "navigate" && previousID && !isEmptyTab(previousID)) {
+                nextTabID = getTabDocumentOID(previousID) === oid ? previousID : createDuplicateTabID(oid);
+            } else if (previousID && !isEmptyTab(previousID)) {
+                if (getTabDocumentOID(previousID) === oid) nextTabID = previousID;
+                else nextTabID = openTabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid)
+                    ? createDuplicateTabID(oid) : oid;
+            } else if (openTabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid)) {
+                nextTabID = createDuplicateTabID(oid);
+            }
+
+            if (previousID && previousID !== nextTabID) {
+                const saved = tabHistories.get(previousID) || { history: history.slice(), historyIndex };
+                tabHistories.delete(previousID);
+                tabScrollPositions.delete(previousID);
+                tabHistories.set(nextTabID, saved);
+            }
+            const pos = openTabs.indexOf(previousID);
+            if (pos >= 0) openTabs[pos] = nextTabID;
+            else if (!openTabs.includes(nextTabID)) openTabs.push(nextTabID);
+            if (pinnedTabs.includes(previousID)) pinnedTabs = pinnedTabs.map((id) => id === previousID ? nextTabID : id);
+            activeTabOID = nextTabID;
+            tabScrollPositions.delete(nextTabID);
         }
+
         normalizeTabOrder();
         saveOpenTabs();
         renderTabs();
 
         if (source !== "tab" && !skipHistoryPush) {
-            if (historyIndex < history.length - 1) {
-                history = history.slice(0, historyIndex + 1);
-            }
+            if (historyIndex < history.length - 1) history = history.slice(0, historyIndex + 1);
             if (history[historyIndex] !== oid) {
                 history.push(oid);
                 historyIndex++;
             }
         }
         skipHistoryPush = false;
+        if (activeTabOID) tabHistories.set(activeTabOID, { history: history.slice(), historyIndex });
         updateHistoryButtons();
 
         currentOID = oid;
         expandAncestors(oid);
         renderTree();
         showDoc(doc, cachedApiURL);
+        if (source === "tab" && viewer) viewer.scrollTop = tabScrollPositions.get(activeTabOID) || 0;
         go().IsFavorite(oid).then(updateFavBtn).catch(() => { });
-        if (query) {
-            openFindBar(query);
-        } else if (find.open) {
-            runFind();
-        } else {
-            find.matches = [];
-            find.current = -1;
-        }
+        if (query) openFindBar(query);
+        else if (find.open) runFind();
+        else { find.matches = []; find.current = -1; }
     } catch (err) {
         if (requestID === openRequestID) showToast("Ошибка", "Не удалось открыть документ: " + err, true);
     }
@@ -1926,7 +2035,7 @@ async function onContentClick(e) {
             try {
                 const d = await go().GetDocumentByURLID(candidate);
                 if (d && d.OutlineID) {
-                    openDocument(d.OutlineID);
+                    openDocument(d.OutlineID, undefined, "navigate");
                     found = true;
                     break;
                 }
