@@ -1945,7 +1945,7 @@ async function onContentClick(e) {
             try {
                 const d = await go().GetDocumentByURLID(candidate);
                 if (d && d.OutlineID) {
-                    openDocument(d.OutlineID);
+                    openDocument(d.OutlineID, undefined, "navigate");
                     found = true;
                     break;
                 }
