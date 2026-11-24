@@ -500,7 +500,6 @@
                             <kbd>Enter</kbd>
                         </label>
                         <button id="knowledgeMapFit" class="knowledge-map-tool" type="button" title="Показать всю карту">Вписать</button>
-                        
                     </div>
                 </header>
                 <div class="knowledge-map-workspace">
@@ -508,6 +507,13 @@
                         <svg id="knowledgeMapSvg" class="knowledge-map-svg" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Граф документов">
                             <g id="knowledgeMapViewport"></g>
                         </svg>
+                        <div id="knowledgeMapPopover" class="knowledge-map-popover" hidden>
+                            <button id="knowledgeMapPopoverClose" class="knowledge-map-popover-close" type="button" aria-label="Закрыть">×</button>
+                            <span id="knowledgeMapPopoverType" class="knowledge-map-popover-type"></span>
+                            <strong id="knowledgeMapPopoverTitle" class="knowledge-map-popover-title"></strong>
+                            <div id="knowledgeMapPopoverDetails" class="knowledge-map-popover-details"></div>
+                            <p class="knowledge-map-popover-hint">Двойное нажатие — открыть документ</p>
+                        </div>
                         <div id="knowledgeMapEmpty" class="knowledge-map-empty" hidden>
                             <div class="knowledge-map-empty-icon">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="5" r="2"/><circle cx="19" cy="7" r="2"/><circle cx="12" cy="19" r="2"/><path d="m7 5.5 10 1M6.2 6.8l4.6 10.3m6.8-8.4-4.6 8.4"/></svg>
@@ -516,21 +522,6 @@
                             <span>Подключитесь к Outline и синхронизируйте документы.</span>
                         </div>
                     </div>
-                    <aside class="knowledge-map-inspector">
-                        <div class="knowledge-map-inspector-label">Выбранный документ</div>
-                        <div id="knowledgeMapSelection" class="knowledge-map-selection">
-                            <span class="knowledge-map-selection-icon">⌘</span>
-                            <strong>Выберите узел на карте</strong>
-                            <p>Нажмите на документ, чтобы увидеть его расположение. Двойной щелчок откроет документ.</p>
-                        </div>
-                        <button id="knowledgeMapOpen" class="btn-primary knowledge-map-open" type="button" disabled>Открыть документ</button>
-                        <div class="knowledge-map-legend">
-                            <span><i class="knowledge-map-dot collection"></i>Коллекция</span>
-                            <span><i class="knowledge-map-dot document"></i>Документ</span>
-                            <span><i class="knowledge-map-dot current"></i>Открытый документ</span>
-                        </div>
-                        <p class="knowledge-map-hint">Колесо мыши — масштаб · Перетаскивание — перемещение · Двойной щелчок — открыть</p>
-                    </aside>
                 </div>
             </section>
 
