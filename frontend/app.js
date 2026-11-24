@@ -773,6 +773,8 @@ function ensureContextMenu() {
 }
 
 function showContextMenu(event, items) {
+    closeMenu();
+    closeSideMenu();
     const menu = ensureContextMenu();
     menu.replaceChildren();
     items.forEach((item) => {
@@ -852,6 +854,7 @@ function closeSideMenu(instant) {
 window.addEventListener("resize", () => {
     closeMenu(true);
     closeSideMenu(true);
+    hideContextMenu();
     closePalette(true);
     updateMaxState();
 });
