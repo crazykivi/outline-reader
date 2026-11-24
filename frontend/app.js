@@ -505,7 +505,7 @@ function bindUI() {
             if ($("mainScreen").style.display !== "none") { e.preventDefault(); syncNow(); }
             return;
         }
-        if ((e.ctrlKey || e.metaKey) && e.code === "KeyK") {
+        if ((e.ctrlKey || e.metaKey) && e.code === "KeyK" && !KnowledgeMap.isOpen()) {
             e.preventDefault(); $("searchInput").focus(); $("searchInput").select();
         }
         if ((e.ctrlKey || e.metaKey) && e.code === "KeyF") {
@@ -518,6 +518,7 @@ function bindUI() {
             e.shiftKey ? findPrev() : findNext();
         }
         if (e.key === "Escape") {
+            if (KnowledgeMap.isOpen()) return;
             if (palette.open) { closePalette(); return; }
             if (uiIsOpen($("docMenu"))) { closeMenu(); return; }
             if (uiIsOpen($("sideMenu"))) { closeSideMenu(); return; }
