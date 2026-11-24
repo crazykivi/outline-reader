@@ -1322,6 +1322,12 @@ function createDuplicateTabID(oid) {
     return tabID;
 }
 
+function saveActiveTabScroll() {
+    if (!activeTabOID || isEmptyTab(activeTabOID)) return;
+    const viewer = document.querySelector(".viewer");
+    if (viewer) tabScrollPositions.set(activeTabOID, viewer.scrollTop);
+}
+
 function createEmptyTabID() {
     let oid;
     do {
@@ -1332,6 +1338,7 @@ function createEmptyTabID() {
 
 function activateEmptyTab(oid) {
     if (!isEmptyTab(oid) || !openTabs.includes(oid)) return;
+    saveActiveTabScroll();
     openRequestID++;
     activeTabOID = oid;
     clearActiveDocument();
@@ -1340,6 +1347,7 @@ function activateEmptyTab(oid) {
 }
 
 function createNewTab() {
+    saveActiveTabScroll();
     const oid = createEmptyTabID();
     openTabs.push(oid);
     activeTabOID = oid;
