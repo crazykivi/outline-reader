@@ -5,13 +5,18 @@ import "fmt"
 const maxPrefValueLen = 64 << 10
 
 var prefKeys = map[string]bool{
-	"theme":          true,
-	"fullWidth":      true,
-	"fontScale":      true,
-	"sideWidth":      true,
-	"expanded":       true,
-	"tocOpen":        true,
-	"captureProtect": true,
+	"theme":                true,
+	"collapsedCollections": true,
+	"favoritesCollapsed":   true,
+	"openTabs":             true,
+	"pinnedTabs":            true,
+	"activeTabOID":         true,
+	"fullWidth":            true,
+	"fontScale":            true,
+	"sideWidth":            true,
+	"expanded":             true,
+	"tocOpen":              true,
+	"captureProtect":       true,
 }
 
 func (a *App) GetPrefs() (map[string]string, error) {

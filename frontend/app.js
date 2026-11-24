@@ -16,13 +16,20 @@ let history = [];
 let historyIndex = -1;
 let skipHistoryPush = false;
 let currentOID = null;
+let openTabs = [];
+let pinnedTabs = [];
+let activeTabOID = null;
+let tabsRestored = false;
+let openRequestID = 0;
+let draggedTabOID = null;
+let contextMenuElement = null;
 let currentDocUpdated = "";
 let searchTimer = null;
 let toastTimer = null, noticeTimer = null;
 let toastAction = null;
 let toastDuration = 4000;
 let updateCheckStarted = false;
-const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect"];
+const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect", "openTabs", "pinnedTabs", "activeTabOID"];
 let prefsReady = false;
 let prefsTimer = null;
 const prefsDirty = new Map();
@@ -74,6 +81,16 @@ async function loadPrefs() {
     try { expanded = new Set(JSON.parse(prefGet("expanded", "[]"))); } catch (e) { expanded = new Set(); }
     try { collapsedCollections = new Set(JSON.parse(prefGet("collapsedCollections", "[]"))); } catch (e) { collapsedCollections = new Set(); }
     favoritesCollapsed = prefGet("favoritesCollapsed", "false") === "true";
+    try { openTabs = JSON.parse(prefGet("openTabs", "[]")); } catch (e) { openTabs = []; }
+    if (!Array.isArray(openTabs)) openTabs = [];
+    openTabs = [...new Set(openTabs.filter((id) => typeof id === "string" && id))];
+    try { pinnedTabs = JSON.parse(prefGet("pinnedTabs", "[]")); } catch (e) { pinnedTabs = []; }
+    if (!Array.isArray(pinnedTabs)) pinnedTabs = [];
+    pinnedTabs = [...new Set(pinnedTabs.filter((id) => typeof id === "string" && openTabs.includes(id)))];
+    normalizeTabOrder();
+    activeTabOID = prefGet("activeTabOID", "") || null;
+    if (activeTabOID && !openTabs.includes(activeTabOID)) activeTabOID = openTabs[openTabs.length - 1] || null;
+    tabsRestored = false;
     const w = parseInt(prefGet("sideWidth", "300"), 10);
     const sidebar = document.querySelector(".sidebar");
     if (sidebar && w >= 220 && w <= 480) {
@@ -169,6 +186,38 @@ function bindUI() {
         if (e.target.closest("input, textarea, [contenteditable]")) return;
         e.preventDefault();
     });
+    const tabStrip = $("docTabs");
+    bindContextMenu(tabStrip, (event, tab) => {
+        const oid = tab && tab.dataset.oid;
+        const items = [];
+        if (oid) {
+            items.push({
+                label: pinnedTabs.includes(oid) ? "Открепить вкладку" : "Закрепить вкладку",
+                icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m10.8 2.5 2.7 2.7-2 1.1-.9 3.1-1.3 1.3-2.1-2.1-3.1 3.1-.8-.8 3.1-3.1-2.1-2.1 1.3-1.3 3.1-.9z"/></svg>',
+                action: () => togglePinnedTab(oid),
+            });
+            items.push({ type: "separator" });
+            items.push({
+                label: "Закрыть вкладку",
+                icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="m4.5 4.5 7 7m0-7-7 7"/></svg>',
+                action: () => closeTab(oid),
+            });
+            items.push({ type: "separator" });
+        }
+        items.push({
+            label: "Закрыть все незакреплённые",
+            icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3.5" width="9.5" height="10" rx="1.5"/><path d="M5.5 1.8h8a1 1 0 0 1 1 1v8"/></svg>',
+            disabled: !openTabs.some((id) => !pinnedTabs.includes(id)),
+            action: closeUnpinnedTabs,
+        });
+        return items;
+    });
+    tabStrip.addEventListener("wheel", (event) => {
+        if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+            tabStrip.scrollLeft += event.deltaY;
+            event.preventDefault();
+        }
+    }, { passive: false });
     document.querySelector(".header").addEventListener("mousedown", (e) => {
         if (e.button !== 0) return;
         if (window.wails && window.wails.flags && window.wails.flags.resizeEdge) return;
@@ -346,9 +395,17 @@ function bindUI() {
         searchTimer = setTimeout(() => runSearch(q), 250);
     });
     $("searchInput").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            clearTimeout(searchTimer);
+            const q = $("searchInput").value.trim();
+            if (q.length < 2) renderTree();
+            else runSearch(q);
+        }
         if (e.key === "Escape") {
             e.stopPropagation();
             $("searchInput").value = "";
+            clearTimeout(searchTimer);
             renderTree();
             $("searchInput").blur();
         }
@@ -598,6 +655,7 @@ function clearMainUI() {
     currentDocUrl = "";
     history = []; historyIndex = -1; updateHistoryButtons();
     $("docContent").innerHTML = ""; $("docTitle").textContent = "";
+    renderTabs();
     $("docDate").textContent = ""; $("docCrumbs").innerHTML = "";
     $("docLink").style.display = "none";
     $("favBtn").style.display = "none";
@@ -709,6 +767,90 @@ function closeMenu(instant) {
     else uiHide($("docMenu"));
 }
 
+function ensureContextMenu() {
+    if (contextMenuElement) return contextMenuElement;
+    const menu = document.createElement("div");
+    menu.className = "context-menu";
+    menu.setAttribute("role", "menu");
+    menu.style.display = "none";
+    document.body.appendChild(menu);
+    document.addEventListener("mousedown", (event) => {
+        if (contextMenuElement && !contextMenuElement.contains(event.target)) hideContextMenu();
+    });
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") hideContextMenu();
+    });
+    document.addEventListener("scroll", hideContextMenu, true);
+    window.addEventListener("blur", hideContextMenu);
+    contextMenuElement = menu;
+    return menu;
+}
+
+function showContextMenu(event, items) {
+    closeMenu();
+    closeSideMenu();
+    const menu = ensureContextMenu();
+    menu.replaceChildren();
+    items.forEach((item) => {
+        if (item.type === "separator") {
+            const separator = document.createElement("div");
+            separator.className = "context-menu-separator";
+            menu.appendChild(separator);
+            return;
+        }
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "context-menu-item" + (item.danger ? " danger" : "");
+        button.setAttribute("role", "menuitem");
+        button.disabled = !!item.disabled;
+        if (item.icon) {
+            const icon = document.createElement("span");
+            icon.className = "context-menu-icon";
+            icon.innerHTML = item.icon;
+            button.appendChild(icon);
+        }
+        const label = document.createElement("span");
+        label.className = "context-menu-label";
+        label.textContent = item.label;
+        button.appendChild(label);
+        if (item.shortcut) {
+            const shortcut = document.createElement("span");
+            shortcut.className = "context-menu-shortcut";
+            shortcut.textContent = item.shortcut;
+            button.appendChild(shortcut);
+        }
+        button.addEventListener("click", () => {
+            hideContextMenu();
+            if (!item.disabled && typeof item.action === "function") item.action();
+        });
+        menu.appendChild(button);
+    });
+    if (!menu.children.length) return;
+    menu.style.display = "block";
+    const rect = menu.getBoundingClientRect();
+    const left = Math.max(8, Math.min(event.clientX, window.innerWidth - rect.width - 8));
+    const top = Math.max(8, Math.min(event.clientY, window.innerHeight - rect.height - 8));
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
+}
+
+function hideContextMenu() {
+    if (contextMenuElement) contextMenuElement.style.display = "none";
+}
+
+function bindContextMenu(target, getItems) {
+    if (!target) return;
+    target.addEventListener("contextmenu", (event) => {
+        if (event.target.closest("input, textarea, [contenteditable]")) return;
+        const tab = event.target.closest(".doc-tab");
+        const items = getItems(event, tab && target.contains(tab) ? tab : null);
+        if (!items || !items.length) return;
+        event.preventDefault();
+        event.stopPropagation();
+        showContextMenu(event, items);
+    });
+}
+
 function openSideMenu() {
     closeMenu();
     $("fwSwitch").classList.toggle("on", fullWidth);
@@ -726,6 +868,7 @@ function closeSideMenu(instant) {
 window.addEventListener("resize", () => {
     closeMenu(true);
     closeSideMenu(true);
+    hideContextMenu();
     closePalette(true);
     updateMaxState();
 });
@@ -786,7 +929,7 @@ async function doReset() {
     try {
         clearTimeout(searchTimer);
         await go().ResetApp();
-        ["or.expanded", "or.theme", "or.sideWidth", "or.fullWidth", "or.fontScale", "or.tocOpen", "or.captureProtect"]
+        ["or.expanded", "or.theme", "or.sideWidth", "or.fullWidth", "or.fontScale", "or.tocOpen", "or.captureProtect", "or.openTabs", "or.pinnedTabs", "or.activeTabOID"]
             .forEach((k) => localStorage.removeItem(k));
         window.location.reload();
     } catch (err) {
@@ -869,9 +1012,14 @@ async function loadTree() {
     try {
         collections = await go().GetTree();
         buildIndex();
+        renderTabs();
         await refreshFavorites();
         if (currentOID) expandAncestors(currentOID);
         renderTree();
+        if (!tabsRestored) {
+            tabsRestored = true;
+            await restoreOpenTabs();
+        }
     } catch (err) {
         $("docTree").innerHTML = "";
         const d = document.createElement("div");
@@ -1103,27 +1251,242 @@ function markActive() {
         ? document.querySelector(`.tree-row.fav-row[data-oid="${esc}"]`)
         : document.querySelector(`.tree-row:not(.fav-row)[data-oid="${esc}"]`);
     if (!row) row = document.querySelector(`.tree-row[data-oid="${esc}"]`);
-    if (row) { row.classList.add("active"); row.scrollIntoView({ block: "nearest" }); }
+    if (row) {
+        row.classList.add("active");
+        const sidebar = document.querySelector(".sidebar");
+        const sidebarTop = document.querySelector(".sidebar-top");
+        const sidebarLower = document.querySelector(".sidebar-lower");
+        const sidebarRect = sidebar.getBoundingClientRect();
+        const topEdge = Math.max(sidebarRect.top, sidebarTop.getBoundingClientRect().bottom) + 8;
+        const bottomEdge = Math.min(sidebarRect.bottom, sidebarLower.getBoundingClientRect().top) - 8;
+        const rowRect = row.getBoundingClientRect();
+        if (rowRect.top < topEdge) {
+            sidebar.scrollBy({ top: rowRect.top - topEdge, behavior: "smooth" });
+        } else if (rowRect.bottom > bottomEdge) {
+            sidebar.scrollBy({ top: rowRect.bottom - bottomEdge, behavior: "smooth" });
+        }
+    }
 }
 
 function goBack() {
     if (historyIndex <= 0) return;
     historyIndex--;
     skipHistoryPush = true;
-    openDocument(history[historyIndex]);
+    openDocument(history[historyIndex], undefined, "navigate");
 }
 
 function goForward() {
     if (historyIndex >= history.length - 1) return;
     historyIndex++;
     skipHistoryPush = true;
-    openDocument(history[historyIndex]);
+    openDocument(history[historyIndex], undefined, "navigate");
 }
 
 function updateHistoryButtons() {
     $("backBtn").disabled = historyIndex <= 0;
     $("forwardBtn").disabled = historyIndex >= history.length - 1;
 }
+
+function normalizeTabOrder() {
+    const pinned = new Set(pinnedTabs);
+    openTabs = [
+        ...openTabs.filter((id) => pinned.has(id)),
+        ...openTabs.filter((id) => !pinned.has(id)),
+    ];
+}
+
+function saveOpenTabs() {
+    normalizeTabOrder();
+    prefSet("openTabs", JSON.stringify(openTabs));
+    prefSet("pinnedTabs", JSON.stringify(pinnedTabs));
+    prefSet("activeTabOID", activeTabOID || "");
+    void flushPrefs();
+}
+
+async function restoreOpenTabs() {
+    normalizeTabOrder();
+    renderTabs();
+    const candidates = [activeTabOID, ...openTabs.slice().reverse()].filter((id, i, all) => id && all.indexOf(id) === i);
+    for (const target of candidates) {
+        await openDocument(target, undefined, "tab");
+        if (currentOID === target) return;
+        openTabs = openTabs.filter((id) => id !== target);
+        pinnedTabs = pinnedTabs.filter((id) => id !== target);
+    }
+    activeTabOID = null;
+    saveOpenTabs();
+    renderTabs();
+}
+
+function renderTabs() {
+    const bar = $("docTabs");
+    if (!bar) return;
+    normalizeTabOrder();
+    bar.innerHTML = "";
+    bar.style.display = openTabs.length ? "flex" : "none";
+    for (const oid of openTabs) {
+        const info = index[oid] || {};
+        const isPinned = pinnedTabs.includes(oid);
+        const tab = document.createElement("div");
+        tab.className = "doc-tab" + (oid === activeTabOID ? " active" : "") + (isPinned ? " pinned" : "");
+        tab.dataset.oid = oid;
+        tab.draggable = true;
+        tab.setAttribute("role", "tab");
+        tab.setAttribute("aria-selected", String(oid === activeTabOID));
+        tab.tabIndex = oid === activeTabOID ? 0 : -1;
+        tab.title = info.title || oid;
+
+        if (isPinned) {
+            const pin = document.createElement("span");
+            pin.className = "doc-tab-pin";
+            pin.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 3 5 5-4 1-4 4-1 5-3-3-5 5"/><path d="m14 5-4 4"/></svg>';
+            tab.appendChild(pin);
+        }
+
+        const label = document.createElement("span");
+        label.className = "doc-tab-title";
+        label.textContent = info.title || oid;
+        tab.appendChild(label);
+
+        if (!isPinned) {
+            const close = document.createElement("button");
+            close.type = "button";
+            close.className = "doc-tab-close";
+            close.title = "Закрыть вкладку";
+            close.setAttribute("aria-label", "Закрыть " + (info.title || "документ"));
+            close.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+            close.addEventListener("click", (event) => { event.stopPropagation(); closeTab(oid); });
+            tab.appendChild(close);
+        }
+
+        const activate = () => {
+            if (oid !== currentOID) openDocument(oid, undefined, "tab");
+        };
+        tab.addEventListener("click", activate);
+        tab.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                activate();
+            }
+        });
+        tab.addEventListener("dragstart", (event) => {
+            draggedTabOID = oid;
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", oid);
+            tab.classList.add("dragging");
+        });
+        tab.addEventListener("dragover", (event) => {
+            if (!draggedTabOID || draggedTabOID === oid) return;
+            if (pinnedTabs.includes(draggedTabOID) !== isPinned) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+            const before = event.clientX < tab.getBoundingClientRect().left + tab.offsetWidth / 2;
+            tab.classList.toggle("drop-before", before);
+            tab.classList.toggle("drop-after", !before);
+        });
+        tab.addEventListener("dragleave", () => tab.classList.remove("drop-before", "drop-after"));
+        tab.addEventListener("drop", (event) => {
+            if (!draggedTabOID || pinnedTabs.includes(draggedTabOID) !== isPinned) return;
+            event.preventDefault();
+            const after = event.clientX >= tab.getBoundingClientRect().left + tab.offsetWidth / 2;
+            reorderTab(draggedTabOID, oid, after);
+        });
+        tab.addEventListener("dragend", () => {
+            draggedTabOID = null;
+            bar.querySelectorAll(".doc-tab").forEach((element) => element.classList.remove("dragging", "drop-before", "drop-after"));
+        });
+        bar.appendChild(tab);
+        if (oid === activeTabOID) tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+}
+
+function reorderTab(sourceOID, targetOID, after) {
+    if (!sourceOID || sourceOID === targetOID) return;
+    if (pinnedTabs.includes(sourceOID) !== pinnedTabs.includes(targetOID)) return;
+    const next = openTabs.slice();
+    const sourceIndex = next.indexOf(sourceOID);
+    if (sourceIndex < 0) return;
+    next.splice(sourceIndex, 1);
+    const targetIndex = next.indexOf(targetOID);
+    if (targetIndex < 0) return;
+    next.splice(targetIndex + (after ? 1 : 0), 0, sourceOID);
+    openTabs = next;
+    draggedTabOID = null;
+    saveOpenTabs();
+    renderTabs();
+}
+
+function togglePinnedTab(oid) {
+    if (!openTabs.includes(oid)) return;
+    if (pinnedTabs.includes(oid)) pinnedTabs = pinnedTabs.filter((id) => id !== oid);
+    else pinnedTabs.push(oid);
+    normalizeTabOrder();
+    saveOpenTabs();
+    renderTabs();
+}
+
+function clearActiveDocument() {
+    currentOID = null;
+    currentDocUpdated = "";
+    currentDocUrl = "";
+    history = [];
+    historyIndex = -1;
+    updateHistoryButtons();
+    $("docViewer").style.display = "none";
+    $("welcomeScreen").style.display = "flex";
+    $("tocBtn").disabled = true;
+    $("favBtn").style.display = "none";
+    $("docLink").style.display = "none";
+    $("docCrumbs").innerHTML = "";
+    $("docContent").innerHTML = "";
+    $("docTitle").textContent = "";
+    $("docDate").textContent = "";
+    $("tocPanel").style.display = "none";
+    $("tocContent").innerHTML = "";
+    renderTree();
+    closeFindBar(true);
+}
+
+function closeTab(oid) {
+    if (activeTabOID === oid) openRequestID++;
+    const pos = openTabs.indexOf(oid);
+    if (pos < 0) return;
+    openTabs.splice(pos, 1);
+    pinnedTabs = pinnedTabs.filter((id) => id !== oid);
+    if (activeTabOID === oid) {
+        activeTabOID = openTabs[Math.min(pos, openTabs.length - 1)] || null;
+        if (activeTabOID) {
+            saveOpenTabs();
+            renderTabs();
+            openDocument(activeTabOID, undefined, "tab");
+            return;
+        }
+        clearActiveDocument();
+    }
+    saveOpenTabs();
+    renderTabs();
+}
+
+function closeUnpinnedTabs() {
+    const remaining = openTabs.filter((id) => pinnedTabs.includes(id));
+    if (remaining.length === openTabs.length) return;
+    const activeWasClosed = activeTabOID && !pinnedTabs.includes(activeTabOID);
+    openTabs = remaining;
+    if (activeWasClosed) {
+        openRequestID++;
+        activeTabOID = remaining[remaining.length - 1] || null;
+        if (activeTabOID) {
+            saveOpenTabs();
+            renderTabs();
+            openDocument(activeTabOID, undefined, "tab");
+            return;
+        }
+        clearActiveDocument();
+    }
+    saveOpenTabs();
+    renderTabs();
+}
+
 
 /* ---------- Избранное / недавние / палитра ---------- */
 
@@ -1233,11 +1596,36 @@ function paletteMove(dir) {
 /* ---------- Документ ---------- */
 
 async function openDocument(oid, query, source) {
-    activeSource = source === "fav" ? "fav" : "tree";
+    const requestID = ++openRequestID;
     try {
         const doc = await go().GetDocument(oid);
+        if (requestID !== openRequestID) return;
+        activeSource = source === "fav" ? "fav" : "tree";
+        if (oid !== currentOID && source !== "navigate") {
+            history = [oid];
+            historyIndex = 0;
+            skipHistoryPush = false;
+        }
+        if (source === "navigate") {
+            const previousOID = activeTabOID;
+            const pos = openTabs.indexOf(previousOID);
+            if (pos >= 0) openTabs[pos] = oid;
+            else openTabs.push(oid);
+            if (pinnedTabs.includes(previousOID)) {
+                pinnedTabs = pinnedTabs.map((id) => id === previousOID ? oid : id);
+            }
+            openTabs = [...new Set(openTabs)];
+            pinnedTabs = [...new Set(pinnedTabs)];
+            activeTabOID = oid;
+        } else {
+            if (!openTabs.includes(oid)) openTabs.push(oid);
+            activeTabOID = oid;
+        }
+        normalizeTabOrder();
+        saveOpenTabs();
+        renderTabs();
 
-        if (!skipHistoryPush) {
+        if (source !== "tab" && !skipHistoryPush) {
             if (historyIndex < history.length - 1) {
                 history = history.slice(0, historyIndex + 1);
             }
@@ -1263,7 +1651,7 @@ async function openDocument(oid, query, source) {
             find.current = -1;
         }
     } catch (err) {
-        showToast("Ошибка", "Не удалось открыть документ: " + err, true);
+        if (requestID === openRequestID) showToast("Ошибка", "Не удалось открыть документ: " + err, true);
     }
 }
 
@@ -1331,7 +1719,7 @@ function renderCrumbs(oid) {
         if (part.oid) {
             const a = document.createElement("a");
             a.textContent = part.title;
-            a.addEventListener("click", () => openDocument(part.oid));
+            a.addEventListener("click", () => openDocument(part.oid, undefined, "navigate"));
             el.appendChild(a);
         } else {
             const s = document.createElement("span");
