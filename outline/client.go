@@ -12,6 +12,7 @@ import (
 )
 
 const maxAPIResponseSize = 64 << 20
+const maxAPIListPages = 10000
 
 type Client struct {
 	baseURL string
@@ -116,7 +117,7 @@ func (c *Client) CheckAuth(ctx context.Context) error {
 
 func (c *Client) Collections(ctx context.Context) ([]Collection, error) {
 	var all []Collection
-	for offset := 0; ; offset += 100 {
+	for pageNo, offset := 0, 0; pageNo < maxAPIListPages; pageNo, offset = pageNo+1, offset+100 {
 		var page []Collection
 		if err := c.post(ctx, "collections.list", map[string]any{"limit": 100, "offset": offset}, &page); err != nil {
 			return nil, err
@@ -126,7 +127,7 @@ func (c *Client) Collections(ctx context.Context) ([]Collection, error) {
 			break
 		}
 	}
-	return all, nil
+	return nil, fmt.Errorf("Collections: pagination exceeded %d pages", maxAPIListPages)
 }
 
 func (c *Client) CollectionTree(ctx context.Context, id string) ([]NavNode, error) {
@@ -137,7 +138,7 @@ func (c *Client) CollectionTree(ctx context.Context, id string) ([]NavNode, erro
 
 func (c *Client) AllDocuments(ctx context.Context) ([]Document, error) {
 	var all []Document
-	for offset := 0; ; offset += 100 {
+	for pageNo, offset := 0, 0; pageNo < maxAPIListPages; pageNo, offset = pageNo+1, offset+100 {
 		var page []Document
 		if err := c.post(ctx, "documents.list", map[string]any{"limit": 100, "offset": offset}, &page); err != nil {
 			return nil, err
@@ -147,12 +148,12 @@ func (c *Client) AllDocuments(ctx context.Context) ([]Document, error) {
 			break
 		}
 	}
-	return all, nil
+	return nil, fmt.Errorf("AllDocuments: pagination exceeded %d pages", maxAPIListPages)
 }
 
 func (c *Client) UpdatedSince(ctx context.Context, since time.Time) ([]Document, error) {
 	var out []Document
-	for offset := 0; ; offset += 100 {
+	for pageNo, offset := 0, 0; pageNo < maxAPIListPages; pageNo, offset = pageNo+1, offset+100 {
 		var page []Document
 		if err := c.post(ctx, "documents.list", map[string]any{
 			"sort": "updatedAt", "direction": "DESC", "limit": 100, "offset": offset,
@@ -171,12 +172,12 @@ func (c *Client) UpdatedSince(ctx context.Context, since time.Time) ([]Document,
 			break
 		}
 	}
-	return out, nil
+	return nil, fmt.Errorf("UpdatedSince: pagination exceeded %d pages", maxAPIListPages)
 }
 
 func (c *Client) Drafts(ctx context.Context) ([]Document, error) {
 	var all []Document
-	for offset := 0; ; offset += 100 {
+	for pageNo, offset := 0, 0; pageNo < maxAPIListPages; pageNo, offset = pageNo+1, offset+100 {
 		var page []Document
 		if err := c.post(ctx, "documents.drafts", map[string]any{"limit": 100, "offset": offset}, &page); err != nil {
 			return nil, err
@@ -186,7 +187,7 @@ func (c *Client) Drafts(ctx context.Context) ([]Document, error) {
 			break
 		}
 	}
-	return all, nil
+	return nil, fmt.Errorf("Drafts: pagination exceeded %d pages", maxAPIListPages)
 }
 
 func (c *Client) DocumentInfo(ctx context.Context, id string) (*Document, error) {
