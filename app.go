@@ -1190,12 +1190,26 @@ func (a *App) ResetApp() error {
 	}
 	a.retireSession(a.detachSession())
 	a.waitRetired()
+
+	plain := a.dbPath + ".plain"
 	for _, suf := range []string{"", "-wal", "-shm", "-journal"} {
-		_ = os.Remove(a.dbPath + suf)
+		path := plain + suf
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("удаление plaintext-копии %s: %w", path, err)
+		}
 	}
-	_ = os.Remove(filepath.Join(a.dataDir, "db.salt"))
-	_ = os.Remove(filepath.Join(a.dataDir, "db.key"))
-	_ = os.Remove(a.guardPath())
+	for _, suf := range []string{"-wal", "-shm", "-journal", ""} {
+		path := a.dbPath + suf
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("удаление файла базы %s: %w", path, err)
+		}
+	}
+	for _, name := range []string{"db.salt", "db.key", "unlock.guard"} {
+		path := filepath.Join(a.dataDir, name)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("удаление файла защиты %s: %w", path, err)
+		}
+	}
 	log.Printf("[APP] storage reset, мастер-пароль будет задан заново")
 	return nil
 }
