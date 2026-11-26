@@ -330,8 +330,8 @@ func (a *App) fetchSignature(rel *ghRelease, name string) (string, error) {
 }
 
 var updateSigningPublicKey = ed25519.PublicKey{
-	17, 252, 232, 40, 181, 21, 242, 185, 147, 93, 18, 201, 120, 14, 54, 61,
-	160, 243, 153, 142, 172, 143, 205, 223, 187, 201, 234, 18, 157, 173, 91, 155,
+	152, 100, 93, 105, 118, 132, 4, 146, 113, 205, 151, 225, 80, 127, 131, 77,
+	237, 229, 25, 199, 242, 107, 123, 200, 126, 123, 89, 90, 196, 255, 62, 112,
 }
 
 func verifyUpdateSignature(path, encodedSignature string) error {
