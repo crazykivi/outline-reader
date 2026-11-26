@@ -9,6 +9,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+func TestValidateDataDirACLAllowsPrivateTempDir(t *testing.T) {
+	require.NoError(t, validateDataDirACL(t.TempDir()))
+}
+
 func TestValidateDataDirACLRejectsEveryone(t *testing.T) {
 	dir := t.TempDir()
 	sd, err := windows.SecurityDescriptorFromString("D:P(A;OICI;FA;;;WD)")
