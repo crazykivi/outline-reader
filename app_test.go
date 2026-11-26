@@ -388,7 +388,7 @@ func TestSyncRemovesDeletedDocuments(t *testing.T) {
 	f.docs = f.docs[:1]
 	f.mu.Unlock()
 
-	res, err := a.SyncDocuments()
+	res, err := a.SyncDocumentsFull()
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.Total)
 	assert.Equal(t, 1, res.Deleted)
@@ -482,7 +482,7 @@ func TestSyncDiffCounters(t *testing.T) {
 	f.docs = f.docs[:1]
 	f.mu.Unlock()
 
-	res, err = a.SyncDocuments()
+	res, err = a.SyncDocumentsFull()
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.Total)
 	assert.Equal(t, 1, res.Updated)

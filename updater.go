@@ -1,13 +1,16 @@
 package main
 
 import (
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -27,6 +30,7 @@ type UpdateInfo struct {
 	Version     string `json:"version"`
 	DownloadURL string `json:"downloadUrl"`
 	SHA256      string `json:"sha256"`
+	Signature   string `json:"signature"`
 	Note        string `json:"note"`
 }
 
@@ -65,12 +69,17 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 	if asset == nil {
 		return UpdateInfo{}, fmt.Errorf("в релизе %s нет сборки для windows/%s", rel.TagName, runtime.GOARCH)
 	}
-	sum, err := fetchChecksum(rel, asset.Name)
+	sum, err := a.fetchChecksum(rel, asset.Name)
 	if err != nil {
 		return UpdateInfo{}, fmt.Errorf("контрольная сумма релиза: %w", err)
 	}
+	signature, err := a.fetchSignature(rel, asset.Name+".sig")
+	if err != nil {
+		return UpdateInfo{}, fmt.Errorf("подпись релиза: %w", err)
+	}
 	info.DownloadURL = asset.URL
 	info.SHA256 = sum
+	info.Signature = signature
 	info.Available = true
 	a.lastUpdate = &info
 	log.Printf("[UPDATE] доступна версия %s, текущая %s", info.Version, current)
@@ -214,7 +223,50 @@ func pickWindowsAsset(rel *ghRelease) *ghAsset {
 	return nil
 }
 
-func fetchChecksum(rel *ghRelease, name string) (string, error) {
+func validateReleaseAssetURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" {
+		return fmt.Errorf("недопустимый URL ресурса релиза")
+	}
+	if port := u.Port(); port != "" && port != "443" {
+		return fmt.Errorf("недопустимый порт ресурса релиза")
+	}
+	host := strings.ToLower(u.Hostname())
+	if host != "github.com" && host != "release-assets.githubusercontent.com" &&
+		host != "objects.githubusercontent.com" && host != "github-releases.githubusercontent.com" {
+		return fmt.Errorf("недоверенный хост ресурса релиза: %s", host)
+	}
+	return nil
+}
+
+func releaseAssetClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("слишком много перенаправлений")
+			}
+			return validateReleaseAssetURL(req.URL.String())
+		},
+	}
+}
+
+func (a *App) getReleaseAsset(rawURL string, timeout time.Duration) (*http.Response, error) {
+	if err := validateReleaseAssetURL(rawURL); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := releaseAssetClient(timeout)
+	if a.updateAssetTransport != nil {
+		client.Transport = a.updateAssetTransport
+	}
+	return client.Do(req)
+}
+
+func (a *App) fetchChecksum(rel *ghRelease, name string) (string, error) {
 	var url string
 	for _, as := range rel.Assets {
 		if as.Name == "sha256sums.txt" {
@@ -225,7 +277,7 @@ func fetchChecksum(rel *ghRelease, name string) (string, error) {
 	if url == "" {
 		return "", fmt.Errorf("в релизе нет sha256sums.txt")
 	}
-	resp, err := (&http.Client{Timeout: 20 * time.Second}).Get(url)
+	resp, err := a.getReleaseAsset(url, 20*time.Second)
 	if err != nil {
 		return "", err
 	}
@@ -246,6 +298,66 @@ func fetchChecksum(rel *ghRelease, name string) (string, error) {
 	return "", fmt.Errorf("в sha256sums.txt нет записи для %s", name)
 }
 
+func (a *App) fetchSignature(rel *ghRelease, name string) (string, error) {
+	var assetURL string
+	for _, asset := range rel.Assets {
+		if asset.Name == name {
+			assetURL = asset.URL
+			break
+		}
+	}
+	if assetURL == "" {
+		return "", fmt.Errorf("в релизе нет %s", name)
+	}
+	resp, err := a.getReleaseAsset(assetURL, 20*time.Second)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("%s: %s", name, resp.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	if err != nil {
+		return "", err
+	}
+	encoded := strings.TrimSpace(string(body))
+	signature, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return "", fmt.Errorf("%s содержит некорректную подпись", name)
+	}
+	return encoded, nil
+}
+
+var updateSigningPublicKey = ed25519.PublicKey{
+	152, 100, 93, 105, 118, 132, 4, 146, 113, 205, 151, 225, 80, 127, 131, 77,
+	237, 229, 25, 199, 242, 107, 123, 200, 126, 123, 89, 90, 196, 255, 62, 112,
+}
+
+func verifyUpdateSignature(path, encodedSignature string) error {
+	return verifySignatureWithKey(path, updateSigningPublicKey, encodedSignature)
+}
+
+func verifySignatureWithKey(path string, publicKey ed25519.PublicKey, encodedSignature string) error {
+	signature, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encodedSignature))
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return fmt.Errorf("некорректный формат подписи")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	if !ed25519.Verify(publicKey, h.Sum(nil), signature) {
+		return fmt.Errorf("подпись не соответствует встроенному ключу")
+	}
+	return nil
+}
+
 func (a *App) downloadUpdate(info *UpdateInfo) (string, error) {
 	f, err := os.CreateTemp(exeDir(), ".update-*")
 	if err != nil {
@@ -254,7 +366,7 @@ func (a *App) downloadUpdate(info *UpdateInfo) (string, error) {
 	tmp := f.Name()
 	drop := func() { _ = f.Close(); _ = os.Remove(tmp) }
 
-	resp, err := (&http.Client{Timeout: 10 * time.Minute}).Get(info.DownloadURL)
+	resp, err := a.getReleaseAsset(info.DownloadURL, 10*time.Minute)
 	if err != nil {
 		drop()
 		return "", err
@@ -329,6 +441,10 @@ func (a *App) downloadUpdate(info *UpdateInfo) (string, error) {
 	if !isPE(tmp) {
 		_ = os.Remove(tmp)
 		return "", fmt.Errorf("скачанный файл не является exe")
+	}
+	if err := verifyUpdateSignature(tmp, info.Signature); err != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("подпись обновления не прошла проверку: %w", err)
 	}
 	log.Printf("[UPDATE] загружено %d байт, sha256 подтверждён", n)
 	return tmp, nil

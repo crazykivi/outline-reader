@@ -56,6 +56,7 @@ type App struct {
 	lastUpdate   *UpdateInfo
 	updateAPI         string
 	updateInProgress  bool
+	updateAssetTransport http.RoundTripper
 }
 
 type unlockGuard struct {
@@ -766,6 +767,63 @@ type docPlacement struct {
 	pos    int
 }
 
+const maxCollectionTreeDepth = 256
+const maxCollectionTreeNodes = 250000
+
+type collectionTreeItem struct {
+	node   outline.NavNode
+	parent string
+	depth  int
+}
+
+func flattenCollectionTree(nodes []outline.NavNode, colID string, startPos, maxNodes int) (map[string]docPlacement, int, error) {
+	if maxNodes <= 0 {
+		return nil, startPos, fmt.Errorf("collection tree node limit exceeded")
+	}
+	placements := make(map[string]docPlacement)
+	stack := make([]collectionTreeItem, 0, len(nodes))
+	for i := len(nodes) - 1; i >= 0; i-- {
+		stack = append(stack, collectionTreeItem{node: nodes[i], depth: 1})
+	}
+	for len(stack) > 0 {
+		item := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if item.depth > maxCollectionTreeDepth {
+			return nil, startPos, fmt.Errorf("collection tree depth exceeds %d", maxCollectionTreeDepth)
+		}
+		if len(placements) >= maxNodes {
+			return nil, startPos, fmt.Errorf("collection tree node limit exceeded")
+		}
+		if item.node.ID == "" {
+			return nil, startPos, fmt.Errorf("collection tree contains an empty document ID")
+		}
+		if _, exists := placements[item.node.ID]; exists {
+			return nil, startPos, fmt.Errorf("collection tree contains duplicate document ID")
+		}
+		position := startPos + len(placements) + 1
+		placements[item.node.ID] = docPlacement{colID: colID, parent: item.parent, pos: position}
+		for i := len(item.node.Children) - 1; i >= 0; i-- {
+			stack = append(stack, collectionTreeItem{node: item.node.Children[i], parent: item.node.ID, depth: item.depth + 1})
+		}
+	}
+	return placements, startPos + len(placements), nil
+}
+
+func syncSnapshotComplete(fullMode bool, live map[string]docPlacement, docs map[string]outline.Document, previousCount int) bool {
+	if !fullMode || len(docs) < len(live) {
+		return false
+	}
+	if previousCount > 0 && len(docs) == 0 {
+		return false
+	}
+	for id := range live {
+		if _, ok := docs[id]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func (a *App) syncCore(ctx context.Context, sess *session, client *outline.Client, full bool) (SyncResult, []string, error) {
 	db := sess.db
 	cols, err := client.Collections(ctx)
@@ -775,16 +833,6 @@ func (a *App) syncCore(ctx context.Context, sess *session, client *outline.Clien
 	live := make(map[string]docPlacement)
 	failedCols := make(map[string]bool)
 	pos := 0
-	var walk func(nodes []outline.NavNode, colID, parent string)
-	walk = func(nodes []outline.NavNode, colID, parent string) {
-		for _, n := range nodes {
-			pos++
-			if _, ok := live[n.ID]; !ok {
-				live[n.ID] = docPlacement{colID: colID, parent: parent, pos: pos}
-			}
-			walk(n.Children, colID, n.ID)
-		}
-	}
 	for _, col := range cols {
 		nodes, err := client.CollectionTree(ctx, col.ID)
 		if err != nil {
@@ -792,7 +840,29 @@ func (a *App) syncCore(ctx context.Context, sess *session, client *outline.Clien
 			failedCols[col.ID] = true
 			continue
 		}
-		walk(nodes, col.ID, "")
+		remaining := maxCollectionTreeNodes - pos
+		placements, nextPos, err := flattenCollectionTree(nodes, col.ID, pos, remaining)
+		if err != nil {
+			log.Printf("[SYNC] tree %s rejected: %v", col.Name, err)
+			failedCols[col.ID] = true
+			continue
+		}
+		duplicate := false
+		for id := range placements {
+			if _, exists := live[id]; exists {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			log.Printf("[SYNC] tree %s rejected: duplicate document ID", col.Name)
+			failedCols[col.ID] = true
+			continue
+		}
+		for id, placement := range placements {
+			live[id] = placement
+		}
+		pos = nextPos
 	}
 	drafts, err := client.Drafts(ctx)
 	if err != nil {
@@ -892,18 +962,23 @@ func (a *App) syncCore(ctx context.Context, sess *session, client *outline.Clien
 			})
 		}
 	}
+	snapshotComplete := syncSnapshotComplete(fullMode, live, byID, len(oldMap))
 	deleteIDs := make([]string, 0)
-	for id, prev := range oldMap {
-		if needed[id] {
-			continue
+	if snapshotComplete {
+		for id, prev := range oldMap {
+			if needed[id] {
+				continue
+			}
+			if _, ok := byID[id]; ok {
+				continue
+			}
+			if failedCols[prev.CollectionID] {
+				continue
+			}
+			deleteIDs = append(deleteIDs, id)
 		}
-		if _, ok := byID[id]; ok {
-			continue
-		}
-		if failedCols[prev.CollectionID] {
-			continue
-		}
-		deleteIDs = append(deleteIDs, id)
+	} else {
+		log.Printf("[SYNC] deletion skipped: snapshot is incomplete or incremental")
 	}
 	res.Deleted = len(deleteIDs)
 	res.Meta = len(metaUpdates)
@@ -914,7 +989,7 @@ func (a *App) syncCore(ctx context.Context, sess *session, client *outline.Clien
 	for i, c := range cols {
 		scols = append(scols, storage.Collection{OutlineID: c.ID, Name: c.Name, Position: i})
 	}
-	if err := db.ApplySync(scols, upserts, metaUpdates, deleteIDs); err != nil {
+	if err := db.ApplySync(scols, upserts, metaUpdates, deleteIDs, snapshotComplete && len(failedCols) == 0 && len(cols) > 0); err != nil {
 		return SyncResult{}, nil, err
 	}
 	res.Total = int(db.CountDocuments())
