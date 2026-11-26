@@ -82,7 +82,7 @@ func TestSearchFTSWithoutMatchesDoesNotScanTable(t *testing.T) {
 	require.True(t, db.fts)
 	require.NoError(t, db.ApplySync(nil, []Document{
 		{OutlineID: "a", Title: "Doc", Text: "abcdef", Position: 1},
-	}, nil, nil))
+	}, nil, nil, false))
 
 	hits, err := db.SearchDocuments("bcd")
 	require.NoError(t, err)
@@ -114,14 +114,14 @@ func TestApplySyncLargeDeleteList(t *testing.T) {
 	db := newTestDB(t)
 	require.NoError(t, db.ApplySync([]Collection{{OutlineID: "c1", Name: "Wiki"}}, []Document{
 		{OutlineID: "d1", CollectionID: "c1", Title: "Doc", Text: "text", Position: 1},
-	}, nil, nil))
+	}, nil, nil, false))
 
 	ids := make([]string, 0, 40001)
 	for i := 0; i < 40000; i++ {
 		ids = append(ids, fmt.Sprintf("gone-%d", i))
 	}
 	ids = append(ids, "d1")
-	require.NoError(t, db.ApplySync([]Collection{{OutlineID: "c1", Name: "Wiki"}}, nil, nil, ids))
+	require.NoError(t, db.ApplySync([]Collection{{OutlineID: "c1", Name: "Wiki"}}, nil, nil, ids, false))
 	assert.Equal(t, int64(0), db.CountDocuments())
 
 	cols, err := db.GetCollections()
@@ -147,7 +147,7 @@ func TestMigratePlaintextPreservesAllStoredData(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	require.NoError(t, db.ApplySync([]Collection{{OutlineID: "collection-1", Name: "Wiki", Position: 1}}, []Document{
 		{OutlineID: "doc-1", CollectionID: "collection-1", Title: "Document", Text: "Important text", Position: 1, UpdatedAt: now},
-	}, nil, nil))
+	}, nil, nil, false))
 	require.NoError(t, db.SaveSettings(&Settings{APIURL: "https://example.test", APIKey: "legacy-key"}))
 	require.NoError(t, db.SetSyncState(now, 2, 3, 4))
 	require.NoError(t, db.SetLastFullSync(now))
@@ -232,7 +232,7 @@ func TestMigratePlaintextSupportsOlderCacheSchema(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.ApplySync([]Collection{{OutlineID: "collection-1", Name: "Wiki"}}, []Document{
 		{OutlineID: "doc-1", CollectionID: "collection-1", Title: "Legacy document", Text: "legacy text"},
-	}, nil, nil))
+	}, nil, nil, false))
 	require.NoError(t, db.SaveSettings(&Settings{APIURL: "https://legacy.example"}))
 	require.NoError(t, db.db.Migrator().DropTable(&Blob{}, &Recent{}, &Favorite{}, &Pref{}))
 	require.NoError(t, db.Close())
