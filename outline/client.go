@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const maxAPIResponseSize = 64 << 20
+
 type Client struct {
 	baseURL string
 	apiKey  string
@@ -44,6 +46,20 @@ func NewClient(baseURL, apiKey string) *Client {
 	return &Client{baseURL: baseURL, apiKey: apiKey, hc: &http.Client{Timeout: 60 * time.Second}}
 }
 
+func readBoundedResponse(body io.Reader, limit int64) ([]byte, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("invalid response size limit")
+	}
+	data, err := io.ReadAll(io.LimitReader(body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("response exceeds %d bytes", limit)
+	}
+	return data, nil
+}
+
 func (c *Client) post(ctx context.Context, method string, payload any, out any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -75,10 +91,14 @@ func (c *Client) post(ctx context.Context, method string, payload any, out any) 
 		}
 		return fmt.Errorf("%s: %s", method, msg)
 	}
+	body, err := readBoundedResponse(resp.Body, maxAPIResponseSize)
+	if err != nil {
+		return fmt.Errorf("%s: response: %w", method, err)
+	}
 	var env struct {
 		Data json.RawMessage `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+	if err := json.Unmarshal(body, &env); err != nil {
 		return fmt.Errorf("%s: decode: %w", method, err)
 	}
 	if out == nil {
