@@ -56,6 +56,7 @@ type App struct {
 	lastUpdate   *UpdateInfo
 	updateAPI         string
 	updateInProgress  bool
+	updateAssetTransport http.RoundTripper
 }
 
 type unlockGuard struct {

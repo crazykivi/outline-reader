@@ -69,11 +69,11 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 	if asset == nil {
 		return UpdateInfo{}, fmt.Errorf("в релизе %s нет сборки для windows/%s", rel.TagName, runtime.GOARCH)
 	}
-	sum, err := fetchChecksum(rel, asset.Name)
+	sum, err := a.fetchChecksum(rel, asset.Name)
 	if err != nil {
 		return UpdateInfo{}, fmt.Errorf("контрольная сумма релиза: %w", err)
 	}
-	signature, err := fetchSignature(rel, asset.Name+".sig")
+	signature, err := a.fetchSignature(rel, asset.Name+".sig")
 	if err != nil {
 		return UpdateInfo{}, fmt.Errorf("подпись релиза: %w", err)
 	}
@@ -251,7 +251,7 @@ func releaseAssetClient(timeout time.Duration) *http.Client {
 	}
 }
 
-func getReleaseAsset(rawURL string, timeout time.Duration) (*http.Response, error) {
+func (a *App) getReleaseAsset(rawURL string, timeout time.Duration) (*http.Response, error) {
 	if err := validateReleaseAssetURL(rawURL); err != nil {
 		return nil, err
 	}
@@ -259,10 +259,14 @@ func getReleaseAsset(rawURL string, timeout time.Duration) (*http.Response, erro
 	if err != nil {
 		return nil, err
 	}
-	return releaseAssetClient(timeout).Do(req)
+	client := releaseAssetClient(timeout)
+	if a.updateAssetTransport != nil {
+		client.Transport = a.updateAssetTransport
+	}
+	return client.Do(req)
 }
 
-func fetchChecksum(rel *ghRelease, name string) (string, error) {
+func (a *App) fetchChecksum(rel *ghRelease, name string) (string, error) {
 	var url string
 	for _, as := range rel.Assets {
 		if as.Name == "sha256sums.txt" {
@@ -273,7 +277,7 @@ func fetchChecksum(rel *ghRelease, name string) (string, error) {
 	if url == "" {
 		return "", fmt.Errorf("в релизе нет sha256sums.txt")
 	}
-	resp, err := getReleaseAsset(url, 20*time.Second)
+	resp, err := a.getReleaseAsset(url, 20*time.Second)
 	if err != nil {
 		return "", err
 	}
@@ -294,7 +298,7 @@ func fetchChecksum(rel *ghRelease, name string) (string, error) {
 	return "", fmt.Errorf("в sha256sums.txt нет записи для %s", name)
 }
 
-func fetchSignature(rel *ghRelease, name string) (string, error) {
+func (a *App) fetchSignature(rel *ghRelease, name string) (string, error) {
 	var assetURL string
 	for _, asset := range rel.Assets {
 		if asset.Name == name {
@@ -305,7 +309,7 @@ func fetchSignature(rel *ghRelease, name string) (string, error) {
 	if assetURL == "" {
 		return "", fmt.Errorf("в релизе нет %s", name)
 	}
-	resp, err := getReleaseAsset(assetURL, 20*time.Second)
+	resp, err := a.getReleaseAsset(assetURL, 20*time.Second)
 	if err != nil {
 		return "", err
 	}
@@ -362,7 +366,7 @@ func (a *App) downloadUpdate(info *UpdateInfo) (string, error) {
 	tmp := f.Name()
 	drop := func() { _ = f.Close(); _ = os.Remove(tmp) }
 
-	resp, err := getReleaseAsset(info.DownloadURL, 10*time.Minute)
+	resp, err := a.getReleaseAsset(info.DownloadURL, 10*time.Minute)
 	if err != nil {
 		drop()
 		return "", err

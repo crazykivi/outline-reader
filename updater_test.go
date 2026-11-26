@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +17,23 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type fakeAssetTransport struct {
+	serverURL string
+}
+
+func (t fakeAssetTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	local, err := url.Parse(t.serverURL)
+	if err != nil {
+		return nil, err
+	}
+	clone := req.Clone(req.Context())
+	u := *req.URL
+	u.Scheme, u.Host = local.Scheme, local.Host
+	clone.URL = &u
+	clone.Host = local.Host
+	return http.DefaultTransport.RoundTrip(clone)
+}
 
 func newFakeGitHub(t *testing.T, tag string, payload []byte) *httptest.Server {
 	t.Helper()
@@ -26,14 +45,18 @@ func newFakeGitHub(t *testing.T, tag string, payload []byte) *httptest.Server {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"tag_name": tag,
 			"assets": []map[string]any{
-				{"name": name, "browser_download_url": srv.URL + "/exe"},
-				{"name": "sha256sums.txt", "browser_download_url": srv.URL + "/sums"},
+				{"name": name, "browser_download_url": "https://github.com/crazykivi/outline-reader/releases/download/test/exe"},
+				{"name": name + ".sig", "browser_download_url": "https://github.com/crazykivi/outline-reader/releases/download/test/sig"},
+				{"name": "sha256sums.txt", "browser_download_url": "https://github.com/crazykivi/outline-reader/releases/download/test/sums"},
 			},
 		})
 	})
 	mux.HandleFunc("/exe", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(payload) })
 	mux.HandleFunc("/sums", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), name)
+	})
+	mux.HandleFunc("/sig", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintln(w, base64.StdEncoding.EncodeToString(make([]byte, 64)))
 	})
 	srv = httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -44,6 +67,8 @@ func TestCheckForUpdateOffersNewVersion(t *testing.T) {
 	srv := newFakeGitHub(t, "v9.9.9", []byte("MZfake"))
 	a := NewApp()
 	a.version, a.updateAPI = "1.0.0", srv.URL+"/latest"
+	a.updateAssetTransport = fakeAssetTransport{serverURL: srv.URL}
+	a.updateAssetTransport = fakeAssetTransport{serverURL: srv.URL}
 	info, err := a.CheckForUpdate()
 	require.NoError(t, err)
 	assert.True(t, info.Available)
