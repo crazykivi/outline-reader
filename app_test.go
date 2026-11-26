@@ -905,3 +905,27 @@ func TestPlaintextBackupIsRemovedOnlyAfterEncryptedDBOpens(t *testing.T) {
 		require.NoError(t, db.Close())
 	}
 }
+
+func TestResetAppRemovesPlaintextBackups(t *testing.T) {
+	a := newUnlockedApp(t)
+	plain := a.dbPath + ".plain"
+	for _, suf := range []string{"", "-wal", "-shm", "-journal"} {
+		require.NoError(t, os.WriteFile(plain+suf, []byte("plaintext"), 0o600))
+	}
+	for _, name := range []string{"db.key", "unlock.guard"} {
+		require.NoError(t, os.WriteFile(filepath.Join(a.dataDir, name), []byte("sensitive"), 0o600))
+	}
+
+	require.NoError(t, a.ResetApp())
+
+	for _, path := range []string{
+		a.dbPath, a.dbPath + "-wal", a.dbPath + "-shm", a.dbPath + "-journal",
+		plain, plain + "-wal", plain + "-shm", plain + "-journal",
+		filepath.Join(a.dataDir, "db.salt"),
+		filepath.Join(a.dataDir, "db.key"),
+		filepath.Join(a.dataDir, "unlock.guard"),
+	} {
+		_, err := os.Stat(path)
+		assert.True(t, os.IsNotExist(err), "expected %s to be removed, got %v", path, err)
+	}
+}
