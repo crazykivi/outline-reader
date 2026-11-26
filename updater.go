@@ -222,6 +222,45 @@ func pickWindowsAsset(rel *ghRelease) *ghAsset {
 	return nil
 }
 
+func validateReleaseAssetURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" {
+		return fmt.Errorf("недопустимый URL ресурса релиза")
+	}
+	if port := u.Port(); port != "" && port != "443" {
+		return fmt.Errorf("недопустимый порт ресурса релиза")
+	}
+	host := strings.ToLower(u.Hostname())
+	if host != "github.com" && host != "release-assets.githubusercontent.com" &&
+		host != "objects.githubusercontent.com" && host != "github-releases.githubusercontent.com" {
+		return fmt.Errorf("недоверенный хост ресурса релиза: %s", host)
+	}
+	return nil
+}
+
+func releaseAssetClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("слишком много перенаправлений")
+			}
+			return validateReleaseAssetURL(req.URL.String())
+		},
+	}
+}
+
+func getReleaseAsset(rawURL string, timeout time.Duration) (*http.Response, error) {
+	if err := validateReleaseAssetURL(rawURL); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	return releaseAssetClient(timeout).Do(req)
+}
+
 func fetchChecksum(rel *ghRelease, name string) (string, error) {
 	var url string
 	for _, as := range rel.Assets {
@@ -233,7 +272,7 @@ func fetchChecksum(rel *ghRelease, name string) (string, error) {
 	if url == "" {
 		return "", fmt.Errorf("в релизе нет sha256sums.txt")
 	}
-	resp, err := (&http.Client{Timeout: 20 * time.Second}).Get(url)
+	resp, err := getReleaseAsset(url, 20*time.Second)
 	if err != nil {
 		return "", err
 	}
@@ -322,7 +361,7 @@ func (a *App) downloadUpdate(info *UpdateInfo) (string, error) {
 	tmp := f.Name()
 	drop := func() { _ = f.Close(); _ = os.Remove(tmp) }
 
-	resp, err := (&http.Client{Timeout: 10 * time.Minute}).Get(info.DownloadURL)
+	resp, err := getReleaseAsset(info.DownloadURL, 10*time.Minute)
 	if err != nil {
 		drop()
 		return "", err
