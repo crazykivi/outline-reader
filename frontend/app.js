@@ -603,6 +603,8 @@ async function unlockDB() {
     $("lockError").textContent = "";
     if ((!lockHasDB || lockLegacy) && pass !== $("lockPass2").value) {
         $("lockError").textContent = "Пароли не совпадают";
+        $("lockPass").value = "";
+        $("lockPass2").value = "";
         return;
     }
     const btn = $("lockBtn");
@@ -617,6 +619,8 @@ async function unlockDB() {
         $("lockError").textContent = String(err);
         startGuardCountdown(await go().UnlockRetryAfter());
     } finally {
+        $("lockPass").value = "";
+        $("lockPass2").value = "";
         btn.disabled = guardLeft > 0;
     }
 }
