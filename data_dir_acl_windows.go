@@ -12,6 +12,14 @@ import (
 const inheritOnlyACE = 0x08
 
 func validateDataDirACL(path string) error {
+	attrs, err := windows.GetFileAttributes(path)
+	if err != nil {
+		return fmt.Errorf("read directory attributes: %w", err)
+	}
+	if attrs&windows.FILE_ATTRIBUTE_DIRECTORY == 0 || attrs&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		return fmt.Errorf("path is not a regular directory")
+	}
+
 	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
 		return fmt.Errorf("read security descriptor: %w", err)
