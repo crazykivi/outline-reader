@@ -2,13 +2,13 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,7 +68,6 @@ func TestCheckForUpdateOffersNewVersion(t *testing.T) {
 	a := NewApp()
 	a.version, a.updateAPI = "1.0.0", srv.URL+"/latest"
 	a.updateAssetTransport = fakeAssetTransport{serverURL: srv.URL}
-	a.updateAssetTransport = fakeAssetTransport{serverURL: srv.URL}
 	info, err := a.CheckForUpdate()
 	require.NoError(t, err)
 	assert.True(t, info.Available)
@@ -100,6 +99,7 @@ func TestDownloadUpdateRejectsBadChecksum(t *testing.T) {
 	srv := newFakeGitHub(t, "v9.9.9", []byte("MZfake"))
 	a := NewApp()
 	a.version, a.updateAPI = "1.0.0", srv.URL+"/latest"
+	a.updateAssetTransport = fakeAssetTransport{serverURL: srv.URL}
 	info, err := a.CheckForUpdate()
 	require.NoError(t, err)
 	info.SHA256 = strings.Repeat("0", 64)
