@@ -86,12 +86,17 @@ func (a *App) init() error {
 		} else {
 			base, err := os.UserConfigDir()
 			if err != nil {
-				base = "."
+				return fmt.Errorf("каталог пользовательских данных: %w", err)
+			}
+			if strings.TrimSpace(base) == "" {
+				return fmt.Errorf("каталог пользовательских данных не определён")
 			}
 			dir := filepath.Join(base, "OutlineReader")
-			if err := os.MkdirAll(dir, 0o755); err != nil {
-				log.Printf("[APP] config dir: %v", err)
-				dir = "."
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return fmt.Errorf("создание каталога пользовательских данных: %w", err)
+			}
+			if err := validateDataDirACL(dir); err != nil {
+				return fmt.Errorf("небезопасные разрешения каталога пользовательских данных: %w", err)
 			}
 			a.dataDir = dir
 		}
@@ -251,6 +256,10 @@ func portableDataDir(base string) string {
 	dir := filepath.Join(base, "data")
 	st, err := os.Stat(dir)
 	if err != nil || !st.IsDir() {
+		return ""
+	}
+	if err := validateDataDirACL(dir); err != nil {
+		log.Printf("[APP] portable dir has unsafe permissions, using user config: %v", err)
 		return ""
 	}
 	f, err := os.CreateTemp(dir, ".probe-*")
