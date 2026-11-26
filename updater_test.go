@@ -31,7 +31,7 @@ func (t fakeAssetTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	clone := req.Clone(req.Context())
 	u := *req.URL
 	u.Scheme, u.Host = local.Scheme, local.Host
-	u.Path = path.Join(local.Path, path.Base(req.URL.Path))
+	u.Path = path.Join("/", path.Base(req.URL.Path))
 	clone.URL = &u
 	clone.Host = local.Host
 	return http.DefaultTransport.RoundTrip(clone)
