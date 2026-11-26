@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-func (d *DB) ApplySync(cols []Collection, docs, meta []Document, deleteIDs []string) error {
+func (d *DB) ApplySync(cols []Collection, docs, meta []Document, deleteIDs []string, pruneCollections bool) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
 		if len(cols) > 0 {
 			if err := tx.Clauses(clause.OnConflict{
@@ -22,14 +22,16 @@ func (d *DB) ApplySync(cols []Collection, docs, meta []Document, deleteIDs []str
 		for _, c := range cols {
 			colIDs = append(colIDs, c.OutlineID)
 		}
-		if len(colIDs) == 0 {
-			if err := tx.Where("1 = 1").Delete(&Collection{}).Error; err != nil {
+		if pruneCollections {
+			if len(colIDs) == 0 {
+				if err := tx.Where("1 = 1").Delete(&Collection{}).Error; err != nil {
+					return err
+				}
+			} else if err := withTempIDs(tx, "keep_collections", colIDs, func(tbl string) error {
+				return tx.Exec("DELETE FROM collections WHERE outline_id NOT IN (SELECT id FROM " + tbl + ")").Error
+			}); err != nil {
 				return err
 			}
-		} else if err := withTempIDs(tx, "keep_collections", colIDs, func(tbl string) error {
-			return tx.Exec("DELETE FROM collections WHERE outline_id NOT IN (SELECT id FROM " + tbl + ")").Error
-		}); err != nil {
-			return err
 		}
 		if len(docs) > 0 {
 			if err := tx.Clauses(clause.OnConflict{

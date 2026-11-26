@@ -961,8 +961,9 @@ func (a *App) syncCore(ctx context.Context, sess *session, client *outline.Clien
 			})
 		}
 	}
+	snapshotComplete := syncSnapshotComplete(fullMode, live, byID, len(oldMap))
 	deleteIDs := make([]string, 0)
-	if syncSnapshotComplete(fullMode, live, byID, len(oldMap)) {
+	if snapshotComplete {
 		for id, prev := range oldMap {
 			if needed[id] {
 				continue
@@ -987,7 +988,7 @@ func (a *App) syncCore(ctx context.Context, sess *session, client *outline.Clien
 	for i, c := range cols {
 		scols = append(scols, storage.Collection{OutlineID: c.ID, Name: c.Name, Position: i})
 	}
-	if err := db.ApplySync(scols, upserts, metaUpdates, deleteIDs); err != nil {
+	if err := db.ApplySync(scols, upserts, metaUpdates, deleteIDs, snapshotComplete && len(failedCols) == 0 && len(cols) > 0); err != nil {
 		return SyncResult{}, nil, err
 	}
 	res.Total = int(db.CountDocuments())
