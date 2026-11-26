@@ -92,14 +92,14 @@ func (c *Client) post(ctx context.Context, method string, payload any, out any) 
 		}
 		return fmt.Errorf("%s: %s", method, msg)
 	}
-	body, err := readBoundedResponse(resp.Body, maxAPIResponseSize)
+	responseBody, err := readBoundedResponse(resp.Body, maxAPIResponseSize)
 	if err != nil {
 		return fmt.Errorf("%s: response: %w", method, err)
 	}
 	var env struct {
 		Data json.RawMessage `json:"data"`
 	}
-	if err := json.Unmarshal(body, &env); err != nil {
+	if err := json.Unmarshal(responseBody, &env); err != nil {
 		return fmt.Errorf("%s: decode: %w", method, err)
 	}
 	if out == nil {
