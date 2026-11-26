@@ -766,6 +766,21 @@ type docPlacement struct {
 	pos    int
 }
 
+func syncSnapshotComplete(fullMode bool, live map[string]docPlacement, docs map[string]outline.Document, previousCount int) bool {
+	if !fullMode || len(docs) < len(live) {
+		return false
+	}
+	if previousCount > 0 && len(docs) == 0 {
+		return false
+	}
+	for id := range live {
+		if _, ok := docs[id]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func (a *App) syncCore(ctx context.Context, sess *session, client *outline.Client, full bool) (SyncResult, []string, error) {
 	db := sess.db
 	cols, err := client.Collections(ctx)
@@ -893,17 +908,21 @@ func (a *App) syncCore(ctx context.Context, sess *session, client *outline.Clien
 		}
 	}
 	deleteIDs := make([]string, 0)
-	for id, prev := range oldMap {
-		if needed[id] {
-			continue
+	if syncSnapshotComplete(fullMode, live, byID, len(oldMap)) {
+		for id, prev := range oldMap {
+			if needed[id] {
+				continue
+			}
+			if _, ok := byID[id]; ok {
+				continue
+			}
+			if failedCols[prev.CollectionID] {
+				continue
+			}
+			deleteIDs = append(deleteIDs, id)
 		}
-		if _, ok := byID[id]; ok {
-			continue
-		}
-		if failedCols[prev.CollectionID] {
-			continue
-		}
-		deleteIDs = append(deleteIDs, id)
+	} else {
+		log.Printf("[SYNC] deletion skipped: snapshot is incomplete or incremental")
 	}
 	res.Deleted = len(deleteIDs)
 	res.Meta = len(metaUpdates)
