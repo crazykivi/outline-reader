@@ -54,7 +54,7 @@ func TestSearchLikeFallbackEscapesWildcards(t *testing.T) {
 	require.NoError(t, db.ApplySync(nil, []Document{
 		{OutlineID: "a", Title: "Discount 50% today", Text: "alpha", Position: 1},
 		{OutlineID: "b", Title: "Plain note", Text: "beta", Position: 2},
-	}, nil, nil))
+	}, nil, nil, false))
 	db.fts = false
 
 	hits, err := db.SearchDocuments("50%")
