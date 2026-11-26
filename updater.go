@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -27,6 +29,7 @@ type UpdateInfo struct {
 	Version     string `json:"version"`
 	DownloadURL string `json:"downloadUrl"`
 	SHA256      string `json:"sha256"`
+	Signature   string `json:"signature"`
 	Note        string `json:"note"`
 }
 
@@ -69,8 +72,13 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 	if err != nil {
 		return UpdateInfo{}, fmt.Errorf("контрольная сумма релиза: %w", err)
 	}
+	signature, err := fetchSignature(rel, asset.Name+".sig")
+	if err != nil {
+		return UpdateInfo{}, fmt.Errorf("подпись релиза: %w", err)
+	}
 	info.DownloadURL = asset.URL
 	info.SHA256 = sum
+	info.Signature = signature
 	info.Available = true
 	a.lastUpdate = &info
 	log.Printf("[UPDATE] доступна версия %s, текущая %s", info.Version, current)
@@ -246,6 +254,66 @@ func fetchChecksum(rel *ghRelease, name string) (string, error) {
 	return "", fmt.Errorf("в sha256sums.txt нет записи для %s", name)
 }
 
+func fetchSignature(rel *ghRelease, name string) (string, error) {
+	var assetURL string
+	for _, asset := range rel.Assets {
+		if asset.Name == name {
+			assetURL = asset.URL
+			break
+		}
+	}
+	if assetURL == "" {
+		return "", fmt.Errorf("в релизе нет %s", name)
+	}
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Get(assetURL)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("%s: %s", name, resp.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	if err != nil {
+		return "", err
+	}
+	encoded := strings.TrimSpace(string(body))
+	signature, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return "", fmt.Errorf("%s содержит некорректную подпись", name)
+	}
+	return encoded, nil
+}
+
+var updateSigningPublicKey = ed25519.PublicKey{
+	17, 252, 232, 40, 181, 21, 242, 185, 147, 93, 18, 201, 120, 14, 54, 61,
+	160, 243, 153, 142, 172, 143, 205, 223, 187, 201, 234, 18, 157, 173, 91, 155,
+}
+
+func verifyUpdateSignature(path, encodedSignature string) error {
+	return verifySignatureWithKey(path, updateSigningPublicKey, encodedSignature)
+}
+
+func verifySignatureWithKey(path string, publicKey ed25519.PublicKey, encodedSignature string) error {
+	signature, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encodedSignature))
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return fmt.Errorf("некорректный формат подписи")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	if !ed25519.Verify(publicKey, h.Sum(nil), signature) {
+		return fmt.Errorf("подпись не соответствует встроенному ключу")
+	}
+	return nil
+}
+
 func (a *App) downloadUpdate(info *UpdateInfo) (string, error) {
 	f, err := os.CreateTemp(exeDir(), ".update-*")
 	if err != nil {
@@ -329,6 +397,10 @@ func (a *App) downloadUpdate(info *UpdateInfo) (string, error) {
 	if !isPE(tmp) {
 		_ = os.Remove(tmp)
 		return "", fmt.Errorf("скачанный файл не является exe")
+	}
+	if err := verifyUpdateSignature(tmp, info.Signature); err != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("подпись обновления не прошла проверку: %w", err)
 	}
 	log.Printf("[UPDATE] загружено %d байт, sha256 подтверждён", n)
 	return tmp, nil

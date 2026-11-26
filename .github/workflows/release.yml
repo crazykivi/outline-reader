@@ -25,6 +25,10 @@ jobs:
   build:
     needs: test
     runs-on: windows-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -124,10 +128,20 @@ jobs:
           Compress-Archive -Path $root -DestinationPath $zip -Force
           "portable=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
+      - name: Sign update executable
+        shell: pwsh
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_KEY)) {
+            throw "Repository secret UPDATE_SIGNING_KEY is required to publish a signed update."
+          }
+          go run ./tools/sign-update -file "${{ steps.artifact.outputs.artifact }}" -output "${{ steps.artifact.outputs.artifact }}.sig"
+
       - name: Checksums
         shell: pwsh
         run: |
-          $files = @("${{ steps.artifact.outputs.artifact }}", "${{ steps.portable.outputs.portable }}")
+          $files = @("${{ steps.artifact.outputs.artifact }}", "${{ steps.artifact.outputs.artifact }}.sig", "${{ steps.portable.outputs.portable }}")
           $lines = foreach ($f in $files) {
             $h = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
             "$h  $f"
@@ -139,6 +153,7 @@ jobs:
         with:
           subject-path: |
             ${{ steps.artifact.outputs.artifact }}
+            ${{ steps.artifact.outputs.artifact }}.sig
             ${{ steps.portable.outputs.portable }}
 
       - name: Create Release and upload
@@ -150,7 +165,7 @@ jobs:
 
             ---
             Установщик не требуется — это один self-contained `.exe`.
-            Проверка целостности: `sha256sums.txt` + GitHub artifact attestation.
+            Проверка обновления: встроенный Ed25519-ключ + подпись `.sig` + SHA-256.
           files: |
             ${{ steps.artifact.outputs.artifact }}
             ${{ steps.portable.outputs.portable }}
