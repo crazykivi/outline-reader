@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,6 +31,7 @@ func (t fakeAssetTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	clone := req.Clone(req.Context())
 	u := *req.URL
 	u.Scheme, u.Host = local.Scheme, local.Host
+	u.Path = path.Join(local.Path, path.Base(req.URL.Path))
 	clone.URL = &u
 	clone.Host = local.Host
 	return http.DefaultTransport.RoundTrip(clone)
