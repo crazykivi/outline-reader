@@ -34,11 +34,20 @@ func validateDataDirACL(path string) error {
 	if err != nil {
 		return fmt.Errorf("read current user SID: %w", err)
 	}
-	if owner, _, err := sd.Owner(); err != nil || owner == nil || !owner.Equals(user.User.Sid) {
-		if err != nil {
-			return fmt.Errorf("read directory owner: %w", err)
-		}
-		return fmt.Errorf("directory is not owned by the current user")
+	systemSID, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
+	if err != nil {
+		return fmt.Errorf("resolve SYSTEM SID: %w", err)
+	}
+	adminSID, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		return fmt.Errorf("resolve Administrators SID: %w", err)
+	}
+	owner, _, err := sd.Owner()
+	if err != nil {
+		return fmt.Errorf("read directory owner: %w", err)
+	}
+	if owner == nil || (!owner.Equals(user.User.Sid) && !owner.Equals(systemSID) && !owner.Equals(adminSID)) {
+		return fmt.Errorf("directory is not owned by a trusted account")
 	}
 
 	dacl, _, err := sd.DACL()
@@ -49,14 +58,6 @@ func validateDataDirACL(path string) error {
 		return fmt.Errorf("directory has a null DACL")
 	}
 
-	systemSID, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
-	if err != nil {
-		return fmt.Errorf("resolve SYSTEM SID: %w", err)
-	}
-	adminSID, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
-	if err != nil {
-		return fmt.Errorf("resolve Administrators SID: %w", err)
-	}
 	creatorSID, err := windows.CreateWellKnownSid(windows.WinCreatorOwnerSid)
 	if err != nil {
 		return fmt.Errorf("resolve CREATOR OWNER SID: %w", err)
