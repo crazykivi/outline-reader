@@ -166,6 +166,7 @@ jobs:
             Проверка обновления: встроенный Ed25519-ключ + подпись `.sig` + SHA-256.
           files: |
             ${{ steps.artifact.outputs.artifact }}
+            ${{ steps.artifact.outputs.artifact }}.sig
             ${{ steps.portable.outputs.portable }}
             sha256sums.txt
           draft: false
