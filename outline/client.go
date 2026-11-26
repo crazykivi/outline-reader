@@ -124,7 +124,7 @@ func (c *Client) Collections(ctx context.Context) ([]Collection, error) {
 		}
 		all = append(all, page...)
 		if len(page) < 100 {
-			break
+			return all, nil
 		}
 	}
 	return nil, fmt.Errorf("Collections: pagination exceeded %d pages", maxAPIListPages)
@@ -145,7 +145,7 @@ func (c *Client) AllDocuments(ctx context.Context) ([]Document, error) {
 		}
 		all = append(all, page...)
 		if len(page) < 100 {
-			break
+			return all, nil
 		}
 	}
 	return nil, fmt.Errorf("AllDocuments: pagination exceeded %d pages", maxAPIListPages)
@@ -169,7 +169,7 @@ func (c *Client) UpdatedSince(ctx context.Context, since time.Time) ([]Document,
 			}
 		}
 		if stop || len(page) < 100 {
-			break
+			return out, nil
 		}
 	}
 	return nil, fmt.Errorf("UpdatedSince: pagination exceeded %d pages", maxAPIListPages)
@@ -184,7 +184,7 @@ func (c *Client) Drafts(ctx context.Context) ([]Document, error) {
 		}
 		all = append(all, page...)
 		if len(page) < 100 {
-			break
+			return all, nil
 		}
 	}
 	return nil, fmt.Errorf("Drafts: pagination exceeded %d pages", maxAPIListPages)
