@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"strconv"
 
 	"outline-reader/outline"
 )
@@ -41,7 +42,7 @@ func TestFlattenCollectionTreeLimitsAndOrder(t *testing.T) {
 	deep := outline.NavNode{ID: "n"}
 	current := &deep
 	for i := 1; i < maxCollectionTreeDepth+1; i++ {
-		current.Children = []outline.NavNode{{ID: "n" + string(rune(i+1))}}
+		current.Children = []outline.NavNode{{ID: "n" + strconv.Itoa(i+1)}}
 		current = &current.Children[0]
 	}
 	if _, _, err := flattenCollectionTree([]outline.NavNode{deep}, "col", 0, maxCollectionTreeNodes); err == nil {
