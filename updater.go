@@ -304,7 +304,7 @@ func fetchSignature(rel *ghRelease, name string) (string, error) {
 	if assetURL == "" {
 		return "", fmt.Errorf("в релизе нет %s", name)
 	}
-	resp, err := (&http.Client{Timeout: 20 * time.Second}).Get(assetURL)
+	resp, err := getReleaseAsset(assetURL, 20*time.Second)
 	if err != nil {
 		return "", err
 	}
