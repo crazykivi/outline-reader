@@ -13,6 +13,7 @@ import (
 
 const maxAPIResponseSize = 64 << 20
 const maxAPIListPages = 10000
+const maxAPIDocumentPayloadSize = 256 << 20
 
 type Client struct {
 	baseURL string
@@ -115,6 +116,18 @@ func (c *Client) CheckAuth(ctx context.Context) error {
 	return c.post(ctx, "auth.info", map[string]any{}, nil)
 }
 
+func documentPayloadSize(d Document) int64 {
+	return int64(len(d.ID) + len(d.Title) + len(d.Text) + len(d.URL) + len(d.UrlID) + len(d.ParentID) + len(d.CollectionID))
+}
+
+func pagePayloadSize(page []Document) int64 {
+	var total int64
+	for _, d := range page {
+		total += documentPayloadSize(d)
+	}
+	return total
+}
+
 func (c *Client) Collections(ctx context.Context) ([]Collection, error) {
 	var all []Collection
 	for pageNo, offset := 0, 0; pageNo < maxAPIListPages; pageNo, offset = pageNo+1, offset+100 {
@@ -138,10 +151,15 @@ func (c *Client) CollectionTree(ctx context.Context, id string) ([]NavNode, erro
 
 func (c *Client) AllDocuments(ctx context.Context) ([]Document, error) {
 	var all []Document
+	var totalBytes int64
 	for pageNo, offset := 0, 0; pageNo < maxAPIListPages; pageNo, offset = pageNo+1, offset+100 {
 		var page []Document
 		if err := c.post(ctx, "documents.list", map[string]any{"limit": 100, "offset": offset}, &page); err != nil {
 			return nil, err
+		}
+		totalBytes += pagePayloadSize(page)
+		if totalBytes > maxAPIDocumentPayloadSize {
+			return nil, fmt.Errorf("AllDocuments: document payload exceeds %d bytes", maxAPIDocumentPayloadSize)
 		}
 		all = append(all, page...)
 		if len(page) < 100 {
@@ -153,12 +171,17 @@ func (c *Client) AllDocuments(ctx context.Context) ([]Document, error) {
 
 func (c *Client) UpdatedSince(ctx context.Context, since time.Time) ([]Document, error) {
 	var out []Document
+	var totalBytes int64
 	for pageNo, offset := 0, 0; pageNo < maxAPIListPages; pageNo, offset = pageNo+1, offset+100 {
 		var page []Document
 		if err := c.post(ctx, "documents.list", map[string]any{
 			"sort": "updatedAt", "direction": "DESC", "limit": 100, "offset": offset,
 		}, &page); err != nil {
 			return nil, err
+		}
+		totalBytes += pagePayloadSize(page)
+		if totalBytes > maxAPIDocumentPayloadSize {
+			return nil, fmt.Errorf("UpdatedSince: document payload exceeds %d bytes", maxAPIDocumentPayloadSize)
 		}
 		stop := false
 		for _, d := range page {
@@ -177,10 +200,15 @@ func (c *Client) UpdatedSince(ctx context.Context, since time.Time) ([]Document,
 
 func (c *Client) Drafts(ctx context.Context) ([]Document, error) {
 	var all []Document
+	var totalBytes int64
 	for pageNo, offset := 0, 0; pageNo < maxAPIListPages; pageNo, offset = pageNo+1, offset+100 {
 		var page []Document
 		if err := c.post(ctx, "documents.drafts", map[string]any{"limit": 100, "offset": offset}, &page); err != nil {
 			return nil, err
+		}
+		totalBytes += pagePayloadSize(page)
+		if totalBytes > maxAPIDocumentPayloadSize {
+			return nil, fmt.Errorf("Drafts: document payload exceeds %d bytes", maxAPIDocumentPayloadSize)
 		}
 		all = append(all, page...)
 		if len(page) < 100 {

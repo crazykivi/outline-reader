@@ -17,3 +17,15 @@ func TestReadBoundedResponse(t *testing.T) {
 		t.Fatal("zero limit should fail")
 	}
 }
+
+func TestPagePayloadSize(t *testing.T) {
+	page := []Document{
+		{ID: "id", Title: "title", Text: "body", URL: "/doc/x", UrlID: "x", ParentID: "p", CollectionID: "c"},
+	}
+	if got := pagePayloadSize(page); got != int64(len("idtitlebody/doc/xxpc")) {
+		t.Fatalf("unexpected payload size: %d", got)
+	}
+	if pagePayloadSize(nil) != 0 {
+		t.Fatal("empty page should have zero payload")
+	}
+}
