@@ -616,6 +616,8 @@ async function unlockDB() {
         $("lockPass").value = ""; $("lockPass2").value = "";
         await bootstrap(true);
     } catch (err) {
+        $("lockPass").value = "";
+        $("lockPass2").value = "";
         $("lockError").textContent = String(err);
         startGuardCountdown(await go().UnlockRetryAfter());
     } finally {
