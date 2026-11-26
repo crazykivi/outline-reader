@@ -12,7 +12,11 @@ import (
 const inheritOnlyACE = 0x08
 
 func validateDataDirACL(path string) error {
-	attrs, err := windows.GetFileAttributes(path)
+	pathPtr, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return fmt.Errorf("encode directory path: %w", err)
+	}
+	attrs, err := windows.GetFileAttributes(pathPtr)
 	if err != nil {
 		return fmt.Errorf("read directory attributes: %w", err)
 	}
