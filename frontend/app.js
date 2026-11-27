@@ -2350,8 +2350,10 @@ function startSplitResize(event) {
     event.preventDefault();
     const wrap = document.querySelector(".viewer-wrap");
     const rect = wrap.getBoundingClientRect();
+    const minPct = rect.width >= 560 ? Math.max(30, 280 / rect.width * 100) : 50;
+    const maxPct = rect.width >= 560 ? Math.min(70, (rect.width - 280) / rect.width * 100) : 50;
     const move = (e) => {
-        const pct = Math.max(30, Math.min(70, ((rect.right - e.clientX) / rect.width) * 100));
+        const pct = Math.max(minPct, Math.min(maxPct, ((rect.right - e.clientX) / rect.width) * 100));
         splitWidth = pct;
         wrap.style.setProperty("--split-width", pct + "%");
     };
