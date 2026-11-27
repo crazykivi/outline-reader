@@ -313,6 +313,8 @@ func MigratePlaintext(dbPath, keyHex string) error {
 		}
 	}
 
+	suffixes := []string{"", "-wal", "-shm", "-journal"}
+	moved := make([]string, 0, len(suffixes))
 	nd, err := NewDB(tmpPath, keyHex)
 	if err != nil {
 		_ = removeDBFiles(tmpPath)
@@ -332,8 +334,6 @@ func MigratePlaintext(dbPath, keyHex string) error {
 		}
 		return cause
 	}
-	suffixes := []string{"", "-wal", "-shm", "-journal"}
-	moved := make([]string, 0, len(suffixes))
 	if len(cols) > 0 {
 		if err := nd.db.CreateInBatches(&cols, 200).Error; err != nil {
 			return rollback(fmt.Errorf("перенос коллекций: %w", err), nd)
