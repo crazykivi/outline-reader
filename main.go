@@ -44,12 +44,9 @@ func main() {
 	app := NewApp()
 	app.version = version
 	app.uiEvents = true
-	if err := app.ensure(); err != nil {
-		log.Printf("[APP] init: %v", err)
-	}
 	info, err := app.StorageInfo()
 	if err != nil {
-		log.Printf("[APP] storage info: %v", err)
+		log.Fatalf("[APP] storage initialization failed: %v", err)
 	}
 
 	uniqueID := "outline-reader-crazykivi-9f3a2b1c-d4e5f6"
@@ -58,6 +55,12 @@ func main() {
 		profileDir = filepath.Join(os.TempDir(), instanceID(info.DataDir))
 		uniqueID = instanceID(info.DataDir)
 		log.Printf("[APP] portable mode, data=%s", info.DataDir)
+	}
+	if err := os.MkdirAll(profileDir, 0o700); err != nil {
+		log.Fatalf("[WEBVIEW] create profile directory: %v", err)
+	}
+	if err := validateDataDirACL(profileDir); err != nil {
+		log.Fatalf("[WEBVIEW] unsafe profile directory permissions: %v", err)
 	}
 	wipeWebviewProfile(profileDir)
 
