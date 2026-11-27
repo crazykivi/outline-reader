@@ -12,11 +12,18 @@ var prefKeys = map[string]bool{
 	"pinnedTabs":            true,
 	"activeTabOID":         true,
 	"fullWidth":            true,
+	"splitFullWidth":        true,
 	"fontScale":            true,
 	"sideWidth":            true,
 	"expanded":             true,
 	"tocOpen":              true,
 	"captureProtect":       true,
+	"splitView":            true,
+	"splitDocumentOID":     true,
+	"splitTabs":            true,
+	"splitPinnedTabs":      true,
+	"splitActiveTabOID":    true,
+	"splitWidth":           true,
 }
 
 func (a *App) GetPrefs() (map[string]string, error) {

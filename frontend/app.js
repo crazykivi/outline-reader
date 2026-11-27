@@ -14,19 +14,16 @@ let collapsedCollections = new Set();
 let favoritesCollapsed = false;
 let history = [];
 let historyIndex = -1;
-const tabHistories = new Map();
-const tabScrollPositions = new Map();
 let skipHistoryPush = false;
 let currentOID = null;
-let openTabs = [];
-let pinnedTabs = [];
-let activeTabOID = null;
 let emptyTabSequence = 0;
 const EMPTY_TAB_PREFIX = "__outline_reader_empty_tab__";
 const DUPLICATE_TAB_PREFIX = "__outline_reader_duplicate_tab__";
+const tabWorkspace = new TabWorkspace();
+const mainTabs = tabWorkspace.main;
+const splitWorkspace = tabWorkspace.split;
 let tabsRestored = false;
 let openRequestID = 0;
-let draggedTabOID = null;
 let contextMenuElement = null;
 let currentDocUpdated = "";
 let searchTimer = null;
@@ -34,7 +31,7 @@ let toastTimer = null, noticeTimer = null;
 let toastAction = null;
 let toastDuration = 4000;
 let updateCheckStarted = false;
-const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "sidebarAutoHide", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect", "openTabs", "pinnedTabs", "activeTabOID"];
+const PREF_KEYS = ["theme", "fullWidth", "splitFullWidth", "fontScale", "sideWidth", "sidebarAutoHide", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect", "openTabs", "pinnedTabs", "activeTabOID", "splitView", "splitDocumentOID", "splitTabs", "splitPinnedTabs", "splitActiveTabOID", "splitWidth"];
 let prefsReady = false;
 let prefsTimer = null;
 const prefsDirty = new Map();
@@ -69,50 +66,66 @@ async function flushPrefs() {
 async function loadPrefs() {
     prefsReady = false;
     let remote = {};
-    try {
-        remote = (await go().GetPrefs()) || {};
-    } catch (err) {
-        console.warn("[UI] prefs load:", err);
-    }
-    PREF_KEYS.forEach((k) => {
-        if (typeof remote[k] === "string") localStorage.setItem("or." + k, remote[k]);
-    });
+    try { remote = (await go().GetPrefs()) || {}; } catch (err) { console.warn("[UI] prefs load:", err); }
+    PREF_KEYS.forEach((k) => { if (typeof remote[k] === "string") localStorage.setItem("or." + k, remote[k]); });
     applyTheme(prefGet("theme", "dark"));
-    applyFullWidth(prefGet("fullWidth") === "1");
+    applyFullWidth(prefGet("fullWidth") === "1", "main");
+    applyFullWidth(prefGet("splitFullWidth") === "1", "split");
     let scale = parseFloat(prefGet("fontScale", "1"));
     if (!(scale >= 0.7 && scale <= 2.0)) scale = 1;
     applyFontScale(scale);
     tocOpen = prefGet("tocOpen") === "1";
+    splitViewEnabled = prefGet("splitView") === "1";
+    splitDocumentOID = prefGet("splitDocumentOID", "") || null;
+    try { splitWorkspace.tabs = JSON.parse(prefGet("splitTabs", "[]")); } catch (e) { splitWorkspace.tabs = []; }
+    if (!Array.isArray(splitWorkspace.tabs)) splitWorkspace.tabs = [];
+    splitWorkspace.tabs = [...new Set(splitWorkspace.tabs.filter((id) => typeof id === "string" && id))];
+    try { splitWorkspace.pinned = JSON.parse(prefGet("splitPinnedTabs", "[]")); } catch (e) { splitWorkspace.pinned = []; }
+    if (!Array.isArray(splitWorkspace.pinned)) splitWorkspace.pinned = [];
+    splitWorkspace.pinned = [...new Set(splitWorkspace.pinned.filter((id) => splitWorkspace.tabs.includes(id)))];
+    splitWorkspace.activeId = prefGet("splitActiveTabOID", "") || null;
+    if (splitWorkspace.activeId && !splitWorkspace.tabs.includes(splitWorkspace.activeId)) splitWorkspace.activeId = splitWorkspace.tabs[splitWorkspace.tabs.length - 1] || null;
+    splitWidth = Math.max(30, Math.min(70, parseFloat(prefGet("splitWidth", "50")) || 50));
+    if (!splitWorkspace.tabs.length && splitDocumentOID) splitWorkspace.tabs = [splitDocumentOID];
+    if (!splitWorkspace.activeId) splitWorkspace.activeId = splitWorkspace.tabs[splitWorkspace.tabs.length - 1] || null;
     try { expanded = new Set(JSON.parse(prefGet("expanded", "[]"))); } catch (e) { expanded = new Set(); }
     try { collapsedCollections = new Set(JSON.parse(prefGet("collapsedCollections", "[]"))); } catch (e) { collapsedCollections = new Set(); }
     favoritesCollapsed = prefGet("favoritesCollapsed", "false") === "true";
-    try { openTabs = JSON.parse(prefGet("openTabs", "[]")); } catch (e) { openTabs = []; }
-    if (!Array.isArray(openTabs)) openTabs = [];
-    openTabs = [...new Set(openTabs.filter((id) => typeof id === "string" && id))];
-    try { pinnedTabs = JSON.parse(prefGet("pinnedTabs", "[]")); } catch (e) { pinnedTabs = []; }
-    if (!Array.isArray(pinnedTabs)) pinnedTabs = [];
-    pinnedTabs = [...new Set(pinnedTabs.filter((id) => typeof id === "string" && openTabs.includes(id)))];
-    normalizeTabOrder();
-    activeTabOID = prefGet("activeTabOID", "") || null;
-    if (activeTabOID && !openTabs.includes(activeTabOID)) activeTabOID = openTabs[openTabs.length - 1] || null;
+    try { mainTabs.tabs = JSON.parse(prefGet("openTabs", "[]")); } catch (e) { mainTabs.tabs = []; }
+    if (!Array.isArray(mainTabs.tabs)) mainTabs.tabs = [];
+    mainTabs.tabs = [...new Set(mainTabs.tabs.filter((id) => typeof id === "string" && id))];
+    try { mainTabs.pinned = JSON.parse(prefGet("pinnedTabs", "[]")); } catch (e) { mainTabs.pinned = []; }
+    if (!Array.isArray(mainTabs.pinned)) mainTabs.pinned = [];
+    mainTabs.pinned = [...new Set(mainTabs.pinned.filter((id) => mainTabs.tabs.includes(id)))];
+    mainTabs.activeId = prefGet("activeTabOID", "") || null;
+    if (mainTabs.activeId && !mainTabs.tabs.includes(mainTabs.activeId)) mainTabs.activeId = mainTabs.tabs[mainTabs.tabs.length - 1] || null;
+    const storedTabState = JSON.stringify({
+        main: [mainTabs.tabs, mainTabs.pinned, mainTabs.activeId],
+        split: [splitWorkspace.tabs, splitWorkspace.pinned, splitWorkspace.activeId],
+    });
+    tabWorkspace.normalize(getTabDocumentOID, isEmptyTab, (pane, id, oid, empty) => empty ? createSplitEmptyTabID() : createSplitDuplicateTabID(oid));
+    const normalizedTabState = JSON.stringify({
+        main: [mainTabs.tabs, mainTabs.pinned, mainTabs.activeId],
+        split: [splitWorkspace.tabs, splitWorkspace.pinned, splitWorkspace.activeId],
+    });
+    const tabStateNeedsSave = storedTabState !== normalizedTabState;
     tabsRestored = false;
     const w = parseInt(prefGet("sideWidth", "300"), 10);
     const sidebar = document.querySelector(".sidebar");
-    if (sidebar && w >= 220 && w <= 480) {
-        sidebar.style.width = w + "px";
-        setSideWidth(w);
-    }
+    if (sidebar && w >= 220 && w <= 480) { sidebar.style.width = w + "px"; setSideWidth(w); }
     prefsReady = true;
+    if (tabStateNeedsSave) {
+        saveOpenTabs();
+        saveSplitTabs();
+    }
     if (Object.keys(remote).length === 0) {
-        PREF_KEYS.forEach((k) => {
-            const v = localStorage.getItem("or." + k);
-            if (v !== null) prefsDirty.set(k, v);
-        });
+        PREF_KEYS.forEach((k) => { const v = localStorage.getItem("or." + k); if (v !== null) prefsDirty.set(k, v); });
         await flushPrefs();
     }
 }
 
 let fullWidth = prefGet("fullWidth") === "1";
+let splitFullWidth = prefGet("splitFullWidth") === "1";
 let tocOpen = prefGet("tocOpen") === "1";
 let fontScale = parseFloat(prefGet("fontScale", "1"));
 let lastTreeClick = { oid: null, time: 0 };
@@ -129,6 +142,17 @@ let connHasKey = false;
 let lastActivitySent = 0;
 let settingsOpen = false;
 let captureBusy = false;
+let splitViewEnabled = prefGet("splitView") === "1";
+let splitDocumentOID = prefGet("splitDocumentOID", "") || null;
+let splitDocumentUpdated = "";
+let splitCurrentOID = null;
+let splitOpenRequestID = 0;
+let activePane = "main";
+let splitHistory = [];
+let splitHistoryIndex = -1;
+let splitWidth = 50;
+let menuAnchor = null;
+let findPane = "main";
 
 const palette = { open: false, items: [], sel: 0, timer: null };
 
@@ -197,9 +221,15 @@ function bindUI() {
         const items = [];
         if (oid) {
             items.push({
-                label: pinnedTabs.includes(oid) ? "Открепить вкладку" : "Закрепить вкладку",
+                label: mainTabs.pinned.includes(oid) ? "Открепить вкладку" : "Закрепить вкладку",
                 icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m10.8 2.5 2.7 2.7-2 1.1-.9 3.1-1.3 1.3-2.1-2.1-3.1 3.1-.8-.8 3.1-3.1-2.1-2.1 1.3-1.3 3.1-.9z"/></svg>',
                 action: () => togglePinnedTab(oid),
+            });
+            items.push({
+                label: "Открыть в другой панели",
+                icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2" width="13" height="12" rx="1.5"/><path d="M8 2v12"/></svg>',
+                disabled: !getTabDocumentOID(oid) || getTabDocumentOID(oid) === currentOID,
+                action: () => openSplitDocument(getTabDocumentOID(oid)),
             });
             items.push({ type: "separator" });
             items.push({
@@ -212,7 +242,7 @@ function bindUI() {
         items.push({
             label: "Закрыть все незакреплённые",
             icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3.5" width="9.5" height="10" rx="1.5"/><path d="M5.5 1.8h8a1 1 0 0 1 1 1v8"/></svg>',
-            disabled: !openTabs.some((id) => !pinnedTabs.includes(id)),
+            disabled: !mainTabs.tabs.some((id) => !mainTabs.pinned.includes(id)),
             action: closeUnpinnedTabs,
         });
         return items;
@@ -263,7 +293,10 @@ function bindUI() {
         }
     });
     document.addEventListener("mouseup", () => { headerPress = null; });
-    window.addEventListener("resize", updateMaxState);
+    window.addEventListener("resize", () => {
+        updateMaxState();
+        if (splitViewEnabled) applySplitWidth();
+    });
     $("themeBtn").addEventListener("click", () => {
         applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
     });
@@ -308,11 +341,16 @@ function bindUI() {
 
     // меню "три точки"
     $("menuBtn").addEventListener("click", () => {
-        uiIsOpen($("docMenu")) ? closeMenu() : openMenu();
+        activePane = "main";
+        uiIsOpen($("docMenu")) ? closeMenu() : openMenu($("menuBtn"));
+    });
+    $("splitMenuBtn").addEventListener("click", () => {
+        activePane = "split";
+        uiIsOpen($("docMenu")) ? closeMenu() : openMenu($("splitMenuBtn"));
     });
     document.addEventListener("mousedown", (e) => {
         if (!uiIsOpen($("docMenu"))) return;
-        if ($("docMenu").contains(e.target) || $("menuBtn").contains(e.target)) return;
+        if ($("docMenu").contains(e.target) || $("menuBtn").contains(e.target) || $("splitMenuBtn").contains(e.target)) return;
         closeMenu();
     });
     document.addEventListener("mousedown", (e) => {
@@ -325,7 +363,7 @@ function bindUI() {
         closeMenu();
         openFindBar();
     });
-    $("menuFullWidth").addEventListener("click", () => { applyFullWidth(!fullWidth); });
+    $("menuFullWidth").addEventListener("click", () => { applyFullWidth(!(activePane === "split" ? splitFullWidth : fullWidth), activePane); });
     $("menuCapture").addEventListener("click", toggleCapture);
     $("menuLock").addEventListener("click", () => { closeSideMenu(); lockNow(); });
     $("menuReset").addEventListener("click", () => { closeSideMenu(); openResetModal(); });
@@ -378,7 +416,7 @@ function bindUI() {
         updateSettingsThemeToggle();
     });
     $("settingsFullWidth").addEventListener("click", () => {
-        applyFullWidth(!fullWidth);
+        applyFullWidth(!fullWidth, "main");
         updateSettingsFullWidth();
     });
     $("settingsZoomIn").addEventListener("click", () => { zoomIn(); updateSettingsZoom(); });
@@ -490,9 +528,10 @@ function bindUI() {
             e.preventDefault(); $("searchInput").focus(); $("searchInput").select();
         }
         if ((e.ctrlKey || e.metaKey) && e.code === "KeyF") {
-            if ($("mainScreen").style.display !== "none" && $("docViewer").style.display !== "none") {
-                e.preventDefault(); openFindBar();
-            }
+            const hasDoc = activePane === "split" && splitViewEnabled
+                ? $("splitDocViewer").style.display !== "none"
+                : $("docViewer").style.display !== "none";
+            if ($("mainScreen").style.display !== "none" && hasDoc) { e.preventDefault(); openFindBar(); }
         }
         if (e.key === "F3" && find.open) {
             e.preventDefault();
@@ -542,6 +581,41 @@ function bindUI() {
         if (currentDocUrl) window.runtime.BrowserOpenURL(currentDocUrl);
     });
     $("favBtn").addEventListener("click", toggleFav);
+    $("splitClose").addEventListener("click", closeSplitView);
+    const activateSplitPane = () => { activePane = "split"; updateHistoryButtons(); markActive(); };
+    $("splitPane").addEventListener("pointerdown", activateSplitPane);
+    $("splitPane").addEventListener("wheel", activateSplitPane, { passive: true });
+    $("splitPane").addEventListener("focusin", activateSplitPane);
+    bindTabPaneDropZone(document.querySelector(".viewer"), "main");
+    bindTabPaneDropZone($("splitPane"), "split");
+    $("splitTabs").addEventListener("wheel", (event) => {
+        const bar = $("splitTabs");
+        if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) { bar.scrollLeft += event.deltaY; event.preventDefault(); }
+    }, { passive: false });
+    $("splitTabs").addEventListener("mousedown", (event) => {
+        if (event.button !== 1) return;
+        const tab = event.target.closest(".doc-tab");
+        if (!tab) return;
+        event.preventDefault(); event.stopPropagation(); closeSplitTab(tab.dataset.oid);
+    });
+    bindContextMenu($("splitTabs"), (event, tab) => splitTabContextMenu(tab));
+    const activateMainPane = () => { activePane = "main"; updateHistoryButtons(); markActive(); };
+    document.querySelector(".viewer").addEventListener("pointerdown", activateMainPane);
+    document.querySelector(".viewer").addEventListener("wheel", activateMainPane, { passive: true });
+    $("splitResizer").addEventListener("mousedown", startSplitResize);
+    $("docTree").addEventListener("contextmenu", (event) => {
+        const row = event.target.closest(".tree-row[data-oid], .search-hit[data-oid]");
+        if (!row || !$("docTree").contains(row)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const oid = row.dataset.oid;
+        showContextMenu(event, [{
+            label: "Открыть в другой панели",
+            icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2" width="13" height="12" rx="1.5"/><path d="M8 2v12"/></svg>',
+            action: () => openSplitDocument(oid),
+        }]);
+    });
+    $("splitContent").addEventListener("click", (event) => onContentClick(event, "split"));
     $("menuZoomIn").addEventListener("click", () => { zoomIn(); });
     $("menuZoomOut").addEventListener("click", () => { zoomOut(); });
     $("zoomIndicator").addEventListener("click", zoomReset);
@@ -764,26 +838,28 @@ async function showAbout() {
     uiShow($("aboutModal"), "flex");
 }
 
-function openMenu() {
+function openMenu(anchor) {
     closeSideMenu();
-    const noDoc = $("docViewer").style.display === "none";
+    menuAnchor = anchor || $("menuBtn");
+    const noDoc = activePane === "split" ? $("splitDocViewer").style.display === "none" : $("docViewer").style.display === "none";
     $("menuFind").classList.toggle("disabled", noDoc);
     const menu = $("docMenu");
     uiShow(menu, "block");
-    const r = $("menuBtn").getBoundingClientRect();
+    const r = menuAnchor.getBoundingClientRect();
     const mh = menu.offsetHeight;
     let top = r.bottom + 8;
     if (top + mh > window.innerHeight - 8) {
         top = Math.max(8, r.top - mh - 8);
     }
     menu.style.top = top + "px";
-    menu.style.left = "auto";
-    menu.style.right = "20px";
+    menu.style.left = Math.max(8, Math.min(window.innerWidth - menu.offsetWidth - 8, r.right - menu.offsetWidth)) + "px";
+    menu.style.right = "auto";
 }
 
 function closeMenu(instant) {
     if (instant) uiHideNow($("docMenu"));
     else uiHide($("docMenu"));
+    menuAnchor = null;
 }
 
 function ensureContextMenu() {
@@ -872,7 +948,7 @@ function bindContextMenu(target, getItems) {
 
 function openSideMenu() {
     closeMenu();
-    $("fwSwitch").classList.toggle("on", fullWidth);
+    $("fwSwitch").classList.toggle("on", activePane === "split" ? splitFullWidth : fullWidth);
     $("capSwitch").classList.toggle("on", captureProtect);
     uiShow($("sideMenu"), "block");
     $("sideAccountBtn").setAttribute("aria-expanded", "true");
@@ -948,7 +1024,7 @@ async function doReset() {
     try {
         clearTimeout(searchTimer);
         await go().ResetApp();
-        ["or.expanded", "or.theme", "or.sideWidth", "or.fullWidth", "or.fontScale", "or.tocOpen", "or.captureProtect", "or.openTabs", "or.pinnedTabs", "or.activeTabOID"]
+        ["or.expanded", "or.theme", "or.sideWidth", "or.fullWidth", "or.fontScale", "or.tocOpen", "or.captureProtect", "or.openTabs", "or.pinnedTabs", "or.activeTabOID", "or.splitView", "or.splitDocumentOID", "or.splitTabs", "or.splitPinnedTabs", "or.splitActiveTabOID", "or.splitWidth"]
             .forEach((k) => localStorage.removeItem(k));
         window.location.reload();
     } catch (err) {
@@ -1033,6 +1109,8 @@ async function loadTree() {
         buildIndex();
         renderTabs();
         await refreshFavorites();
+        if (splitViewEnabled) await restoreSplitTabs();
+        renderSplitView();
         if (currentOID) expandAncestors(currentOID);
         renderTree();
         if (!tabsRestored) {
@@ -1264,8 +1342,9 @@ function renderNodes(nodes, depth) {
 
 function markActive() {
     document.querySelectorAll(".tree-row.active").forEach((el) => el.classList.remove("active"));
-    if (!currentOID) return;
-    const esc = CSS.escape(currentOID);
+    const selectedOID = activePane === "split" && splitViewEnabled ? splitCurrentOID : currentOID;
+    if (!selectedOID) return;
+    const esc = CSS.escape(selectedOID);
     let row = activeSource === "fav"
         ? document.querySelector(`.tree-row.fav-row[data-oid="${esc}"]`)
         : document.querySelector(`.tree-row:not(.fav-row)[data-oid="${esc}"]`);
@@ -1284,22 +1363,29 @@ function markActive() {
 }
 
 function goBack() {
+    if (activePane === "split" && splitViewEnabled) { goBackSplit(); return; }
     if (historyIndex <= 0) return;
     historyIndex--;
     skipHistoryPush = true;
-    openDocument(history[historyIndex], undefined, "navigate", activeTabOID);
+    openDocument(history[historyIndex], undefined, "navigate", mainTabs.activeId);
 }
 
 function goForward() {
+    if (activePane === "split" && splitViewEnabled) { goForwardSplit(); return; }
     if (historyIndex >= history.length - 1) return;
     historyIndex++;
     skipHistoryPush = true;
-    openDocument(history[historyIndex], undefined, "navigate", activeTabOID);
+    openDocument(history[historyIndex], undefined, "navigate", mainTabs.activeId);
 }
 
 function updateHistoryButtons() {
-    $("backBtn").disabled = historyIndex <= 0;
-    $("forwardBtn").disabled = historyIndex >= history.length - 1;
+    const split = activePane === "split" && splitViewEnabled;
+    const mainPane = document.querySelector(".viewer");
+    const splitPane = $("splitPane");
+    mainPane.classList.toggle("pane-inactive", split);
+    splitPane.classList.toggle("pane-inactive", splitViewEnabled && !split);
+    $("backBtn").disabled = split ? splitHistoryIndex <= 0 : historyIndex <= 0;
+    $("forwardBtn").disabled = split ? splitHistoryIndex >= splitHistory.length - 1 : historyIndex >= history.length - 1;
 }
 
 function isEmptyTab(oid) {
@@ -1320,29 +1406,29 @@ function createDuplicateTabID(oid) {
     let tabID;
     do {
         tabID = DUPLICATE_TAB_PREFIX + Date.now() + "_" + (++emptyTabSequence) + ":" + encodeURIComponent(oid);
-    } while (openTabs.includes(tabID));
+    } while (mainTabs.tabs.includes(tabID) || splitWorkspace.tabs.includes(tabID));
     return tabID;
 }
 
 function saveActiveTabScroll() {
-    if (!activeTabOID || isEmptyTab(activeTabOID)) return;
+    if (!mainTabs.activeId || isEmptyTab(mainTabs.activeId)) return;
     const viewer = document.querySelector(".viewer");
-    if (viewer) tabScrollPositions.set(activeTabOID, viewer.scrollTop);
+    if (viewer) mainTabs.scrollPositions.set(mainTabs.activeId, viewer.scrollTop);
 }
 
 function createEmptyTabID() {
     let oid;
     do {
         oid = EMPTY_TAB_PREFIX + Date.now() + "_" + (++emptyTabSequence);
-    } while (openTabs.includes(oid));
+    } while (mainTabs.tabs.includes(oid) || splitWorkspace.tabs.includes(oid));
     return oid;
 }
 
 function activateEmptyTab(oid) {
-    if (!isEmptyTab(oid) || !openTabs.includes(oid)) return;
+    if (!isEmptyTab(oid) || tabWorkspace.ownerOf(oid) !== "main") return;
     saveActiveTabScroll();
+    if (!tabWorkspace.activateTab("main", oid)) return;
     openRequestID++;
-    activeTabOID = oid;
     clearActiveDocument();
     saveOpenTabs();
     renderTabs();
@@ -1351,8 +1437,7 @@ function activateEmptyTab(oid) {
 function createNewTab() {
     saveActiveTabScroll();
     const oid = createEmptyTabID();
-    openTabs.push(oid);
-    activeTabOID = oid;
+    if (!tabWorkspace.createTab("main", oid)) return;
     clearActiveDocument();
     saveOpenTabs();
     renderTabs();
@@ -1361,28 +1446,25 @@ function createNewTab() {
 }
 
 function normalizeTabOrder() {
-    const pinned = new Set(pinnedTabs);
-    openTabs = [
-        ...openTabs.filter((id) => pinned.has(id)),
-        ...openTabs.filter((id) => !pinned.has(id)),
-    ];
+    tabWorkspace.normalizeOrder(mainTabs);
 }
 
 function saveOpenTabs() {
+    tabWorkspace.assert();
     normalizeTabOrder();
-    prefSet("openTabs", JSON.stringify(openTabs));
-    prefSet("pinnedTabs", JSON.stringify(pinnedTabs));
-    prefSet("activeTabOID", activeTabOID || "");
+    prefSet("openTabs", JSON.stringify(mainTabs.tabs));
+    prefSet("pinnedTabs", JSON.stringify(mainTabs.pinned));
+    prefSet("activeTabOID", mainTabs.activeId || "");
     void flushPrefs();
 }
 
 async function restoreOpenTabs() {
     normalizeTabOrder();
     renderTabs();
-    const candidates = [activeTabOID, ...openTabs.slice().reverse()].filter((id, i, all) => id && all.indexOf(id) === i);
+    const candidates = [mainTabs.activeId, ...mainTabs.tabs.slice().reverse()].filter((id, i, all) => id && all.indexOf(id) === i);
     for (const target of candidates) {
         if (isEmptyTab(target)) {
-            if (target === activeTabOID) {
+            if (target === mainTabs.activeId) {
                 activateEmptyTab(target);
                 return;
             }
@@ -1391,13 +1473,97 @@ async function restoreOpenTabs() {
         const documentOID = getTabDocumentOID(target);
         if (!documentOID) continue;
         await openDocument(documentOID, undefined, "tab", target);
-        if (currentOID === documentOID && activeTabOID === target) return;
-        openTabs = openTabs.filter((id) => id !== target);
-        pinnedTabs = pinnedTabs.filter((id) => id !== target);
+        if (currentOID === documentOID && mainTabs.activeId === target) return;
+        tabWorkspace.closeTab("main", target);
     }
-    activeTabOID = null;
+    mainTabs.activeId = null;
     saveOpenTabs();
     renderTabs();
+}
+
+function moveTabBetweenPanes(tabID, sourcePane, targetPane, targetTabID, after) {
+    if (!tabID || sourcePane === targetPane) return false;
+    if (sourcePane === "main") saveActiveTabScroll();
+    else saveActiveSplitScroll();
+    const result = tabWorkspace.move({
+        tabId: tabID, sourcePane, targetPane, targetTabId: targetTabID, after,
+        isEmptyTab,
+        createEmpty: (pane) => pane === "main" ? createEmptyTabID() : createSplitEmptyTabID(),
+    });
+    if (!result) return false;
+    if (sourcePane === "main") {
+        openRequestID++;
+        saveOpenTabs();
+        renderTabs();
+    } else {
+        splitOpenRequestID++;
+        saveSplitTabs();
+        renderSplitTabs();
+    }
+    if (result.sourceWasActive) {
+        if (sourcePane === "main") {
+            if (isEmptyTab(result.sourceActiveId)) activateEmptyTab(result.sourceActiveId);
+            else void openDocument(getTabDocumentOID(result.sourceActiveId), undefined, "tab", result.sourceActiveId);
+        } else if (isEmptyTab(result.sourceActiveId)) {
+            splitCurrentOID = null;
+            splitDocumentOID = null;
+            splitHistory = [];
+            splitHistoryIndex = -1;
+            showSplitWelcome();
+            $("splitDocViewer").style.display = "none";
+        } else {
+            void openSplitDocument(getTabDocumentOID(result.sourceActiveId), undefined, "tab", result.sourceActiveId);
+        }
+    }
+    if (targetPane === "main") {
+        activePane = "main";
+        saveOpenTabs();
+        renderTabs();
+        if (isEmptyTab(tabID)) activateEmptyTab(tabID);
+        else void openDocument(getTabDocumentOID(tabID), undefined, "tab", tabID);
+    } else {
+        activePane = "split";
+        saveSplitTabs();
+        renderSplitTabs();
+        if (isEmptyTab(tabID)) {
+            splitOpenRequestID++;
+            splitCurrentOID = null;
+            splitDocumentOID = null;
+            splitHistory = [];
+            splitHistoryIndex = -1;
+            showSplitWelcome();
+            $("splitDocViewer").style.display = "none";
+        } else {
+            void openSplitDocument(getTabDocumentOID(tabID), undefined, "tab", tabID);
+        }
+    }
+    activePane = targetPane;
+    tabWorkspace.assert();
+    updateHistoryButtons();
+    markActive();
+    return true;
+}
+
+function bindTabPaneDropZone(element, targetPane) {
+    if (!element || element.dataset.tabDropZone === targetPane) return;
+    element.dataset.tabDropZone = targetPane;
+    element.addEventListener("dragover", (event) => {
+        if (!tabWorkspace.drag.tabId || !tabWorkspace.drag.pane || tabWorkspace.drag.pane === targetPane) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+    });
+    element.addEventListener("drop", (event) => handleTabBarDrop(event, targetPane));
+}
+
+function handleTabBarDrop(event, targetPane) {
+    const drag = tabWorkspace.consumeDrag(targetPane);
+    if (!drag) return;
+    event.preventDefault();
+    const targetTab = event.target instanceof Element ? event.target.closest(".doc-tab") : null;
+    const targetStrip = targetPane === "main" ? $("docTabs") : $("splitTabs");
+    const targetTabID = targetTab && targetStrip.contains(targetTab) ? targetTab.dataset.oid : null;
+    const after = targetTab ? event.clientX >= targetTab.getBoundingClientRect().left + targetTab.offsetWidth / 2 : false;
+    moveTabBetweenPanes(drag.tabId, drag.pane, targetPane, targetTabID, after);
 }
 
 function renderTabs() {
@@ -1405,19 +1571,19 @@ function renderTabs() {
     if (!bar) return;
     normalizeTabOrder();
     bar.innerHTML = "";
-    bar.style.display = openTabs.length ? "flex" : "none";
-    for (const tabID of openTabs) {
+    bar.style.display = mainTabs.tabs.length ? "flex" : "none";
+    for (const tabID of mainTabs.tabs) {
         const empty = isEmptyTab(tabID);
         const documentOID = getTabDocumentOID(tabID);
         const info = empty ? {} : (index[documentOID] || {});
-        const isPinned = pinnedTabs.includes(tabID);
+        const isPinned = mainTabs.pinned.includes(tabID);
         const tab = document.createElement("div");
-        tab.className = "doc-tab" + (tabID === activeTabOID ? " active" : "") + (isPinned ? " pinned" : "");
+        tab.className = "doc-tab" + (tabID === mainTabs.activeId ? " active" : "") + (isPinned ? " pinned" : "");
         tab.dataset.oid = tabID;
         tab.draggable = true;
         tab.setAttribute("role", "tab");
-        tab.setAttribute("aria-selected", String(tabID === activeTabOID));
-        tab.tabIndex = tabID === activeTabOID ? 0 : -1;
+        tab.setAttribute("aria-selected", String(tabID === mainTabs.activeId));
+        tab.tabIndex = tabID === mainTabs.activeId ? 0 : -1;
         tab.title = empty ? "Новая вкладка" : (info.title || documentOID);
 
         if (isPinned) {
@@ -1445,8 +1611,8 @@ function renderTabs() {
 
         const activate = () => {
             if (empty) {
-                if (tabID !== activeTabOID) activateEmptyTab(tabID);
-            } else if (tabID !== activeTabOID) {
+                if (tabID !== mainTabs.activeId) activateEmptyTab(tabID);
+            } else if (tabID !== mainTabs.activeId) {
                 openDocument(documentOID, undefined, "tab", tabID);
             }
         };
@@ -1458,14 +1624,15 @@ function renderTabs() {
             }
         });
         tab.addEventListener("dragstart", (event) => {
-            draggedTabOID = tabID;
+            if (!tabWorkspace.beginDrag(tabID, "main")) { event.preventDefault(); return; }
             event.dataTransfer.effectAllowed = "move";
             event.dataTransfer.setData("text/plain", tabID);
             tab.classList.add("dragging");
         });
         tab.addEventListener("dragover", (event) => {
-            if (!draggedTabOID || draggedTabOID === tabID) return;
-            if (pinnedTabs.includes(draggedTabOID) !== isPinned) return;
+            if (!tabWorkspace.drag.tabId || (tabWorkspace.drag.pane === "main" && tabWorkspace.drag.tabId === tabID)) return;
+            if (tabWorkspace.drag.pane === "split") { event.preventDefault(); event.dataTransfer.dropEffect = "move"; return; }
+            if (mainTabs.pinned.includes(tabWorkspace.drag.tabId) !== isPinned) return;
             event.preventDefault();
             event.dataTransfer.dropEffect = "move";
             const before = event.clientX < tab.getBoundingClientRect().left + tab.offsetWidth / 2;
@@ -1474,18 +1641,30 @@ function renderTabs() {
         });
         tab.addEventListener("dragleave", () => tab.classList.remove("drop-before", "drop-after"));
         tab.addEventListener("drop", (event) => {
-            if (!draggedTabOID || pinnedTabs.includes(draggedTabOID) !== isPinned) return;
+            if (!tabWorkspace.drag.tabId || tabWorkspace.drag.pane !== "main") return;
             event.preventDefault();
+            const sourceOID = tabWorkspace.drag.tabId;
             const after = event.clientX >= tab.getBoundingClientRect().left + tab.offsetWidth / 2;
-            reorderTab(draggedTabOID, tabID, after);
+            if (mainTabs.pinned.includes(sourceOID) === isPinned) reorderTab(sourceOID, tabID, after);
         });
         tab.addEventListener("dragend", () => {
-            draggedTabOID = null;
+            tabWorkspace.endDrag(tabID, "main");
             bar.querySelectorAll(".doc-tab").forEach((element) => element.classList.remove("dragging", "drop-before", "drop-after"));
         });
         bar.appendChild(tab);
-        if (tabID === activeTabOID) tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+        if (tabID === mainTabs.activeId) tab.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
+
+    const splitButton = document.createElement("button");
+    splitButton.type = "button";
+    splitButton.id = "splitViewBtn";
+    splitButton.className = "doc-tab-add split-view-tab-btn";
+    splitButton.title = splitViewEnabled ? "Скрыть разделение" : "Открыть вторую панель";
+    splitButton.setAttribute("aria-label", splitButton.title);
+    splitButton.setAttribute("aria-pressed", String(splitViewEnabled));
+    splitButton.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>';
+    splitButton.addEventListener("click", toggleSplitView);
+    bar.appendChild(splitButton);
 
     const add = document.createElement("button");
     add.type = "button";
@@ -1499,26 +1678,13 @@ function renderTabs() {
 }
 
 function reorderTab(sourceOID, targetOID, after) {
-    if (!sourceOID || sourceOID === targetOID) return;
-    if (pinnedTabs.includes(sourceOID) !== pinnedTabs.includes(targetOID)) return;
-    const next = openTabs.slice();
-    const sourceIndex = next.indexOf(sourceOID);
-    if (sourceIndex < 0) return;
-    next.splice(sourceIndex, 1);
-    const targetIndex = next.indexOf(targetOID);
-    if (targetIndex < 0) return;
-    next.splice(targetIndex + (after ? 1 : 0), 0, sourceOID);
-    openTabs = next;
-    draggedTabOID = null;
+    if (!tabWorkspace.reorder(sourceOID, "main", targetOID, after)) return;
     saveOpenTabs();
     renderTabs();
 }
 
 function togglePinnedTab(oid) {
-    if (!openTabs.includes(oid)) return;
-    if (pinnedTabs.includes(oid)) pinnedTabs = pinnedTabs.filter((id) => id !== oid);
-    else pinnedTabs.push(oid);
-    normalizeTabOrder();
+    if (!tabWorkspace.togglePinned("main", oid)) return;
     saveOpenTabs();
     renderTabs();
 }
@@ -1546,20 +1712,15 @@ function clearActiveDocument() {
 }
 
 function closeTab(oid) {
-    if (activeTabOID === oid) openRequestID++;
-    const pos = openTabs.indexOf(oid);
-    if (pos < 0) return;
-    openTabs.splice(pos, 1);
-    pinnedTabs = pinnedTabs.filter((id) => id !== oid);
-    tabHistories.delete(oid);
-    tabScrollPositions.delete(oid);
-    if (activeTabOID === oid) {
-        activeTabOID = openTabs[Math.min(pos, openTabs.length - 1)] || null;
-        if (activeTabOID) {
+    const result = tabWorkspace.closeTab("main", oid);
+    if (!result) return;
+    if (result.wasActive) {
+        openRequestID++;
+        if (result.activeId) {
             saveOpenTabs();
             renderTabs();
-            if (isEmptyTab(activeTabOID)) activateEmptyTab(activeTabOID);
-            else openDocument(getTabDocumentOID(activeTabOID), undefined, "tab", activeTabOID);
+            if (isEmptyTab(result.activeId)) activateEmptyTab(result.activeId);
+            else void openDocument(getTabDocumentOID(result.activeId), undefined, "tab", result.activeId);
             return;
         }
         clearActiveDocument();
@@ -1569,18 +1730,15 @@ function closeTab(oid) {
 }
 
 function closeUnpinnedTabs() {
-    const remaining = openTabs.filter((id) => pinnedTabs.includes(id));
-    if (remaining.length === openTabs.length) return;
-    const activeWasClosed = activeTabOID && !pinnedTabs.includes(activeTabOID);
-    openTabs = remaining;
-    if (activeWasClosed) {
+    const result = tabWorkspace.closeUnpinned("main");
+    if (!result) return;
+    if (result.activeWasClosed) {
         openRequestID++;
-        activeTabOID = remaining[remaining.length - 1] || null;
-        if (activeTabOID) {
+        if (result.activeId) {
             saveOpenTabs();
             renderTabs();
-            if (isEmptyTab(activeTabOID)) activateEmptyTab(activeTabOID);
-            else openDocument(getTabDocumentOID(activeTabOID), undefined, "tab", activeTabOID);
+            if (isEmptyTab(result.activeId)) activateEmptyTab(result.activeId);
+            else void openDocument(getTabDocumentOID(result.activeId), undefined, "tab", result.activeId);
             return;
         }
         clearActiveDocument();
@@ -1588,7 +1746,6 @@ function closeUnpinnedTabs() {
     saveOpenTabs();
     renderTabs();
 }
-
 
 /* ---------- Избранное / недавние / палитра ---------- */
 
@@ -1698,54 +1855,41 @@ function paletteMove(dir) {
 /* ---------- Документ ---------- */
 
 async function openDocument(oid, query, source, targetTabID) {
+    if (activePane === "split" && splitViewEnabled) return openSplitDocument(oid, query, source, targetTabID);
+    activePane = "main";
     const requestID = ++openRequestID;
     try {
         const doc = await go().GetDocument(oid);
         if (requestID !== openRequestID) return;
         activeSource = source === "fav" ? "fav" : "tree";
 
-        const previousTabID = activeTabOID;
+        const previousTabID = mainTabs.activeId;
         const viewer = document.querySelector(".viewer");
         if (previousTabID && previousTabID !== targetTabID && !isEmptyTab(previousTabID) && viewer) {
-            tabScrollPositions.set(previousTabID, viewer.scrollTop);
+            mainTabs.scrollPositions.set(previousTabID, viewer.scrollTop);
         }
 
+        const selection = tabWorkspace.selectDocumentTab({
+            paneName: "main",
+            documentOID: oid,
+            source,
+            targetTabId: targetTabID,
+            getDocumentOID: getTabDocumentOID,
+            isEmptyTab,
+            createDuplicate: createDuplicateTabID,
+        });
+        if (!selection) throw new Error("Не удалось выбрать вкладку документа");
+        targetTabID = selection.tabId;
+
         if (source === "tab") {
-            targetTabID = targetTabID || oid;
-            const saved = tabHistories.get(targetTabID);
+            const saved = mainTabs.histories.get(targetTabID);
             history = saved ? saved.history.slice() : [oid];
             historyIndex = saved ? saved.historyIndex : 0;
             skipHistoryPush = false;
-            if (!openTabs.includes(targetTabID)) openTabs.push(targetTabID);
-            activeTabOID = targetTabID;
         } else {
-            const previousID = activeTabOID;
-            let nextTabID = oid;
-            if (source === "navigate" && previousID && !isEmptyTab(previousID)) {
-                nextTabID = getTabDocumentOID(previousID) === oid ? previousID : createDuplicateTabID(oid);
-            } else if (previousID && !isEmptyTab(previousID)) {
-                if (getTabDocumentOID(previousID) === oid) nextTabID = previousID;
-                else nextTabID = openTabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid)
-                    ? createDuplicateTabID(oid) : oid;
-            } else if (openTabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid)) {
-                nextTabID = createDuplicateTabID(oid);
-            }
-
-            if (previousID && previousID !== nextTabID) {
-                const saved = tabHistories.get(previousID) || { history: history.slice(), historyIndex };
-                tabHistories.delete(previousID);
-                tabScrollPositions.delete(previousID);
-                tabHistories.set(nextTabID, saved);
-            }
-            const pos = openTabs.indexOf(previousID);
-            if (pos >= 0) openTabs[pos] = nextTabID;
-            else if (!openTabs.includes(nextTabID)) openTabs.push(nextTabID);
-            if (pinnedTabs.includes(previousID)) pinnedTabs = pinnedTabs.map((id) => id === previousID ? nextTabID : id);
-            activeTabOID = nextTabID;
-            tabScrollPositions.delete(nextTabID);
+            mainTabs.scrollPositions.delete(targetTabID);
         }
 
-        normalizeTabOrder();
         saveOpenTabs();
         renderTabs();
 
@@ -1757,14 +1901,14 @@ async function openDocument(oid, query, source, targetTabID) {
             }
         }
         skipHistoryPush = false;
-        if (activeTabOID) tabHistories.set(activeTabOID, { history: history.slice(), historyIndex });
+        mainTabs.histories.set(targetTabID, { history: history.slice(), historyIndex });
         updateHistoryButtons();
 
         currentOID = oid;
         expandAncestors(oid);
         renderTree();
         showDoc(doc, cachedApiURL);
-        if (source === "tab" && viewer) viewer.scrollTop = tabScrollPositions.get(activeTabOID) || 0;
+        if (source === "tab" && viewer) viewer.scrollTop = mainTabs.scrollPositions.get(targetTabID) || 0;
         go().IsFavorite(oid).then(updateFavBtn).catch(() => { });
         if (query) openFindBar(query);
         else if (find.open) runFind();
@@ -1785,6 +1929,485 @@ function showDoc(doc, base) {
     renderMarkdown(doc.Text || "");
     renderTOC();
     document.querySelector(".viewer").scrollTop = 0;
+}
+
+function normalizeSplitTabOrder() {
+    tabWorkspace.normalizeOrder(splitWorkspace);
+}
+
+function saveSplitTabs() {
+    tabWorkspace.assert();
+    normalizeSplitTabOrder();
+    splitDocumentOID = getTabDocumentOID(splitWorkspace.activeId);
+    prefSet("splitTabs", JSON.stringify(splitWorkspace.tabs));
+    prefSet("splitPinnedTabs", JSON.stringify(splitWorkspace.pinned));
+    prefSet("splitActiveTabOID", splitWorkspace.activeId || "");
+    prefSet("splitDocumentOID", splitDocumentOID || "");
+    void flushPrefs();
+}
+
+function createSplitEmptyTabID() {
+    let id;
+    do { id = EMPTY_TAB_PREFIX + "split_" + Date.now() + "_" + (++emptyTabSequence); }
+    while (splitWorkspace.tabs.includes(id) || mainTabs.tabs.includes(id));
+    return id;
+}
+
+function createSplitDuplicateTabID(oid) {
+    let id;
+    do { id = DUPLICATE_TAB_PREFIX + "split_" + Date.now() + "_" + (++emptyTabSequence) + ":" + encodeURIComponent(oid); }
+    while (splitWorkspace.tabs.includes(id) || mainTabs.tabs.includes(id));
+    return id;
+}
+
+function saveActiveSplitScroll() {
+    if (!splitWorkspace.activeId || isEmptyTab(splitWorkspace.activeId)) return;
+    splitWorkspace.scrollPositions.set(splitWorkspace.activeId, $("splitDocViewer").scrollTop);
+}
+
+function renderSplitTabs() {
+    const bar = $("splitTabs");
+    if (!bar) return;
+    normalizeSplitTabOrder();
+    bar.innerHTML = "";
+    for (const tabID of splitWorkspace.tabs) {
+        const empty = isEmptyTab(tabID);
+        const oid = getTabDocumentOID(tabID);
+        const info = empty ? {} : (index[oid] || {});
+        const pinned = splitWorkspace.pinned.includes(tabID);
+        const tab = document.createElement("div");
+        tab.className = "doc-tab" + (tabID === splitWorkspace.activeId ? " active" : "") + (pinned ? " pinned" : "");
+        tab.dataset.oid = tabID;
+        tab.draggable = true;
+        tab.setAttribute("role", "tab");
+        tab.setAttribute("aria-selected", String(tabID === splitWorkspace.activeId));
+        tab.tabIndex = tabID === splitWorkspace.activeId ? 0 : -1;
+        tab.title = empty ? "Новая вкладка" : (info.title || oid);
+        if (pinned) {
+            const pin = document.createElement("span");
+            pin.className = "doc-tab-pin";
+            pin.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 3 5 5-4 1-4 4-1 5-3-3-5 5"/><path d="m14 5-4 4"/></svg>';
+            tab.appendChild(pin);
+        }
+        const label = document.createElement("span");
+        label.className = "doc-tab-title";
+        label.textContent = empty ? "Новая вкладка" : (info.title || oid);
+        tab.appendChild(label);
+        if (!pinned) {
+            const close = document.createElement("button");
+            close.type = "button";
+            close.className = "doc-tab-close";
+            close.title = "Закрыть вкладку";
+            close.setAttribute("aria-label", "Закрыть " + (info.title || "документ"));
+            close.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+            close.addEventListener("click", (event) => { event.stopPropagation(); closeSplitTab(tabID); });
+            tab.appendChild(close);
+        }
+        tab.addEventListener("click", () => activateSplitTab(tabID));
+        tab.addEventListener("dragstart", (event) => {
+            if (!tabWorkspace.beginDrag(tabID, "split")) { event.preventDefault(); return; }
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", tabID);
+            tab.classList.add("dragging");
+        });
+        tab.addEventListener("dragover", (event) => {
+            if (!tabWorkspace.drag.tabId || (tabWorkspace.drag.pane === "split" && tabWorkspace.drag.tabId === tabID)) return;
+            if (tabWorkspace.drag.pane === "main") { event.preventDefault(); event.dataTransfer.dropEffect = "move"; return; }
+            if (splitWorkspace.pinned.includes(tabWorkspace.drag.tabId) !== pinned) return;
+            event.preventDefault();
+            const before = event.clientX < tab.getBoundingClientRect().left + tab.offsetWidth / 2;
+            tab.classList.toggle("drop-before", before);
+            tab.classList.toggle("drop-after", !before);
+        });
+        tab.addEventListener("dragleave", () => tab.classList.remove("drop-before", "drop-after"));
+        tab.addEventListener("drop", (event) => {
+            if (!tabWorkspace.drag.tabId || tabWorkspace.drag.pane !== "split") return;
+            event.preventDefault();
+            const sourceOID = tabWorkspace.drag.tabId;
+            if (splitWorkspace.pinned.includes(sourceOID) !== pinned) return;
+            const after = event.clientX >= tab.getBoundingClientRect().left + tab.offsetWidth / 2;
+            if (!tabWorkspace.reorder(sourceOID, "split", tabID, after)) return;
+            saveSplitTabs();
+            renderSplitTabs();
+        });
+        tab.addEventListener("dragend", () => {
+            tabWorkspace.endDrag(tabID, "split");
+            bar.querySelectorAll(".doc-tab").forEach((el) => el.classList.remove("dragging", "drop-before", "drop-after"));
+        });
+        bar.appendChild(tab);
+        if (tabID === splitWorkspace.activeId) tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "doc-tab-add";
+    add.title = "Новая вкладка";
+    add.setAttribute("aria-label", "Открыть новую вкладку справа");
+    add.textContent = "+";
+    add.addEventListener("click", createSplitTab);
+    bar.appendChild(add);
+}
+
+function splitTabContextMenu(tab) {
+    const id = tab && tab.dataset.oid;
+    const items = [];
+    if (id) {
+        items.push({
+            label: splitWorkspace.pinned.includes(id) ? "Открепить вкладку" : "Закрепить вкладку",
+            action: () => toggleSplitPinnedTab(id),
+        });
+        items.push({ type: "separator" });
+        items.push({ label: "Закрыть вкладку", action: () => closeSplitTab(id) });
+        items.push({ type: "separator" });
+    }
+    items.push({
+        label: "Закрыть все незакреплённые",
+        disabled: !splitWorkspace.tabs.some((id) => !splitWorkspace.pinned.includes(id)),
+        action: closeUnpinnedSplitTabs,
+    });
+    return items;
+}
+
+function toggleSplitPinnedTab(id) {
+    if (!tabWorkspace.togglePinned("split", id)) return;
+    saveSplitTabs();
+    renderSplitTabs();
+}
+
+function createSplitTab() {
+    splitOpenRequestID++;
+    saveActiveSplitScroll();
+    const id = createSplitEmptyTabID();
+    if (!tabWorkspace.createTab("split", id)) return;
+    splitCurrentOID = null;
+    splitDocumentUpdated = "";
+    splitHistory = [];
+    splitHistoryIndex = -1;
+    activePane = "split";
+    showSplitWelcome();
+    $("splitDocViewer").style.display = "none";
+    saveSplitTabs();
+    renderSplitTabs();
+    updateHistoryButtons();
+}
+
+async function activateSplitTab(id) {
+    if (!id || id === splitWorkspace.activeId) { activePane = "split"; return; }
+    saveActiveSplitScroll();
+    if (!tabWorkspace.activateTab("split", id)) return;
+    activePane = "split";
+    if (isEmptyTab(id)) {
+        splitOpenRequestID++;
+        splitCurrentOID = null;
+        splitDocumentOID = null;
+        splitDocumentUpdated = "";
+        splitHistory = [];
+        splitHistoryIndex = -1;
+        showSplitWelcome();
+        $("splitDocViewer").style.display = "none";
+        saveSplitTabs();
+        renderSplitTabs();
+        updateHistoryButtons();
+        markActive();
+        return;
+    }
+    await openSplitDocument(getTabDocumentOID(id), undefined, "tab", id);
+}
+
+function closeSplitTab(id) {
+    const result = tabWorkspace.closeTab("split", id);
+    if (!result) return;
+    if (result.wasActive) {
+        splitOpenRequestID++;
+        if (result.activeId && !isEmptyTab(result.activeId)) {
+            saveSplitTabs();
+            renderSplitTabs();
+            void openSplitDocument(getTabDocumentOID(result.activeId), undefined, "tab", result.activeId);
+            return;
+        }
+        splitCurrentOID = null;
+        splitDocumentOID = null;
+        splitHistory = [];
+        splitHistoryIndex = -1;
+        showSplitWelcome();
+        $("splitDocViewer").style.display = "none";
+    }
+    saveSplitTabs();
+    renderSplitTabs();
+    updateHistoryButtons();
+    markActive();
+}
+
+function closeUnpinnedSplitTabs() {
+    const result = tabWorkspace.closeUnpinned("split");
+    if (!result) return;
+    if (result.activeWasClosed) {
+        splitOpenRequestID++;
+        if (result.activeId && !isEmptyTab(result.activeId)) {
+            saveSplitTabs();
+            renderSplitTabs();
+            void openSplitDocument(getTabDocumentOID(result.activeId), undefined, "tab", result.activeId);
+            return;
+        }
+        splitCurrentOID = null;
+        splitDocumentOID = null;
+        splitHistory = [];
+        splitHistoryIndex = -1;
+        showSplitWelcome();
+        $("splitDocViewer").style.display = "none";
+    }
+    saveSplitTabs();
+    renderSplitTabs();
+    updateHistoryButtons();
+}
+
+async function restoreSplitTabs() {
+    if (!splitWorkspace.tabs.length) {
+        const id = splitDocumentOID || createSplitEmptyTabID();
+        tabWorkspace.createTab("split", id);
+    }
+    if (!splitWorkspace.activeId || !splitWorkspace.tabs.includes(splitWorkspace.activeId)) {
+        const id = splitWorkspace.tabs[splitWorkspace.tabs.length - 1];
+        if (id) tabWorkspace.activateTab("split", id);
+    }
+    renderSplitTabs();
+    if (isEmptyTab(splitWorkspace.activeId)) {
+        splitCurrentOID = null;
+        splitDocumentOID = null;
+        showSplitWelcome();
+        $("splitDocViewer").style.display = "none";
+        saveSplitTabs();
+        return;
+    }
+    const oid = getTabDocumentOID(splitWorkspace.activeId);
+    await openSplitDocument(oid, undefined, "tab", splitWorkspace.activeId);
+    activePane = "main";
+}
+
+function showSplitWelcome() {
+    $("splitWelcome").style.display = "flex";
+    $("splitDocViewer").style.display = "none";
+    const link = $("splitDocLink");
+    link.style.display = "none";
+    link.removeAttribute("href");
+    link.onclick = null;
+}
+
+function renderSplitView() {
+    const wrap = document.querySelector(".viewer-wrap");
+    const pane = $("splitPane");
+    const button = $("splitViewBtn");
+    wrap.classList.toggle("split-active", splitViewEnabled);
+    pane.style.display = splitViewEnabled ? "flex" : "none";
+    $("splitResizer").style.display = splitViewEnabled ? "block" : "none";
+    applySplitWidth();
+    button.title = splitViewEnabled ? "Скрыть разделение" : "Разделить рабочую область";
+    button.setAttribute("aria-label", button.title);
+    button.setAttribute("aria-pressed", String(splitViewEnabled));
+    if (splitViewEnabled) renderSplitTabs();
+    updateHistoryButtons();
+}
+
+function applySplitWidth() {
+    const wrap = document.querySelector(".viewer-wrap");
+    const width = wrap.clientWidth;
+    let pct = splitWidth;
+    if (width >= 560) {
+        const min = 280 / width * 100;
+        const max = Math.min(70, (width - 280) / width * 100);
+        pct = Math.max(min, Math.min(max, pct));
+    } else {
+        pct = 50;
+    }
+    wrap.style.setProperty("--split-width", pct + "%");
+}
+
+function toggleSplitView() {
+    splitViewEnabled = !splitViewEnabled;
+    prefSet("splitView", splitViewEnabled ? "1" : "0");
+    if (splitViewEnabled && !splitWorkspace.tabs.length) {
+        tabWorkspace.createTab("split", createSplitEmptyTabID());
+        saveSplitTabs();
+    }
+    if (!splitViewEnabled) activePane = "main";
+    renderSplitView();
+    if (splitViewEnabled && splitWorkspace.activeId && !isEmptyTab(splitWorkspace.activeId)) {
+        if (splitCurrentOID) void refreshSplitDocument();
+        else void openSplitDocument(getTabDocumentOID(splitWorkspace.activeId), undefined, "tab", splitWorkspace.activeId);
+    }
+}
+
+function closeSplitView() {
+    splitOpenRequestID++;
+    saveActiveSplitScroll();
+    if (find.open && findPane === "split") closeFindBar();
+    splitViewEnabled = false;
+    tabWorkspace.mergePane("split", "main", (oldID) => {
+        return isEmptyTab(oldID) ? createEmptyTabID() : createDuplicateTabID(getTabDocumentOID(oldID));
+    });
+    splitCurrentOID = null;
+    splitDocumentOID = null;
+    splitHistory = [];
+    splitHistoryIndex = -1;
+    activePane = "main";
+    prefSet("splitView", "0");
+    prefSet("splitTabs", "[]");
+    prefSet("splitPinnedTabs", "[]");
+    prefSet("splitActiveTabOID", "");
+    prefSet("splitDocumentOID", "");
+    saveOpenTabs();
+    saveSplitTabs();
+    renderTabs();
+    renderSplitTabs();
+    renderSplitView();
+    if (mainTabs.activeId) {
+        if (isEmptyTab(mainTabs.activeId)) activateEmptyTab(mainTabs.activeId);
+        else void openDocument(getTabDocumentOID(mainTabs.activeId), undefined, "tab", mainTabs.activeId);
+    }
+}
+
+async function openSplitDocument(oid, query, source, targetTabID) {
+    if (!oid) return;
+    if (splitWorkspace.activeId && splitWorkspace.activeId !== targetTabID) saveActiveSplitScroll();
+    const requestID = ++splitOpenRequestID;
+    activePane = "split";
+    splitViewEnabled = true;
+    prefSet("splitView", "1");
+    try {
+        const doc = await go().GetDocument(oid);
+        if (requestID !== splitOpenRequestID) return;
+
+        const selection = tabWorkspace.selectDocumentTab({
+            paneName: "split",
+            documentOID: oid,
+            source,
+            targetTabId: targetTabID,
+            getDocumentOID: getTabDocumentOID,
+            isEmptyTab,
+            createDuplicate: createSplitDuplicateTabID,
+        });
+        if (!selection) throw new Error("Не удалось выбрать вкладку правой панели");
+        targetTabID = selection.tabId;
+
+        if (source === "tab") {
+            const saved = splitWorkspace.histories.get(targetTabID);
+            splitHistory = saved ? saved.history.slice() : [oid];
+            splitHistoryIndex = saved ? saved.historyIndex : 0;
+        } else {
+            if (selection.previousDocumentOID !== oid) splitWorkspace.scrollPositions.delete(targetTabID);
+            if (splitHistoryIndex >= 0 && splitHistory[splitHistoryIndex] !== oid) {
+                splitHistory = splitHistory.slice(0, splitHistoryIndex + 1);
+                splitHistory.push(oid);
+                splitHistoryIndex++;
+            } else if (splitHistoryIndex < 0) {
+                splitHistory = [oid];
+                splitHistoryIndex = 0;
+            }
+        }
+
+        splitWorkspace.histories.set(targetTabID, { history: splitHistory.slice(), historyIndex: splitHistoryIndex });
+        splitCurrentOID = oid;
+        splitDocumentOID = oid;
+        saveSplitTabs();
+        showSplitDoc(doc);
+        if (source === "tab") $("splitDocViewer").scrollTop = splitWorkspace.scrollPositions.get(targetTabID) || 0;
+        renderSplitTabs();
+        renderSplitView();
+        markActive();
+        if (query) openFindBar(query);
+        else if (find.open && findPane === "split") runFind();
+    } catch (err) {
+        if (requestID === splitOpenRequestID) showToast("Ошибка", "Не удалось открыть документ справа: " + err, true);
+    }
+}
+
+function showSplitDoc(doc) {
+    splitCurrentOID = doc.OutlineID;
+    splitDocumentOID = doc.OutlineID;
+    splitDocumentUpdated = doc.UpdatedAt || "";
+    $("splitWelcome").style.display = "none";
+    $("splitDocViewer").style.display = "block";
+    $("splitTitle").textContent = doc.Title || "Без названия";
+    $("splitTitle").title = doc.Title || "Без названия";
+    $("splitDate").textContent = doc.UpdatedAt ? "Обновлено: " + new Date(doc.UpdatedAt).toLocaleString("ru-RU") : "";
+    const path = doc.Url || (doc.UrlID ? "/doc/" + doc.UrlID : "");
+    const link = $("splitDocLink");
+    const url = cachedApiURL && path ? cachedApiURL.replace(/\/+$/, "") + path : "";
+    link.href = url || "#";
+    link.style.display = url ? "inline-flex" : "none";
+    link.onclick = (event) => {
+        if (!url) event.preventDefault();
+        else { event.preventDefault(); window.runtime.BrowserOpenURL(url); }
+    };
+    renderCrumbs(doc.OutlineID, $("splitCrumbs"), "split");
+    $("splitContent").innerHTML = "";
+    renderMarkdown(doc.Text || "", $("splitContent"));
+    const scroll = splitWorkspace.scrollPositions.get(splitWorkspace.activeId);
+    $("splitDocViewer").scrollTop = scroll || 0;
+    updateHistoryButtons();
+}
+
+async function refreshSplitDocument() {
+    if (!splitViewEnabled || !splitDocumentOID) return;
+    const oid = splitDocumentOID;
+    const requestID = ++splitOpenRequestID;
+    try {
+        const doc = await go().GetDocument(oid);
+        if (requestID !== splitOpenRequestID || splitDocumentOID !== oid || !splitViewEnabled) return;
+        if ((doc.UpdatedAt || "") === splitDocumentUpdated) return;
+        const scroll = $("splitDocViewer").scrollTop;
+        showSplitDoc(doc);
+        $("splitDocViewer").scrollTop = scroll;
+        if (find.open && findPane === "split") runFind();
+    } catch (err) {
+        if (requestID !== splitOpenRequestID || splitDocumentOID !== oid) return;
+        splitDocumentOID = null;
+        splitCurrentOID = null;
+        splitDocumentUpdated = "";
+        prefSet("splitDocumentOID", "");
+        $("splitContent").innerHTML = "";
+        showSplitWelcome();
+        $("splitDocViewer").style.display = "none";
+        renderSplitView();
+    }
+}
+
+function goBackSplit() {
+    if (splitHistoryIndex <= 0 || !splitWorkspace.activeId) return;
+    splitHistoryIndex--;
+    const oid = splitHistory[splitHistoryIndex];
+    splitWorkspace.histories.set(splitWorkspace.activeId, { history: splitHistory.slice(), historyIndex: splitHistoryIndex });
+    void openSplitDocument(oid, undefined, "tab", splitWorkspace.activeId);
+}
+
+function goForwardSplit() {
+    if (splitHistoryIndex >= splitHistory.length - 1 || !splitWorkspace.activeId) return;
+    splitHistoryIndex++;
+    const oid = splitHistory[splitHistoryIndex];
+    splitWorkspace.histories.set(splitWorkspace.activeId, { history: splitHistory.slice(), historyIndex: splitHistoryIndex });
+    void openSplitDocument(oid, undefined, "tab", splitWorkspace.activeId);
+}
+
+function startSplitResize(event) {
+    if (!splitViewEnabled || event.button !== 0) return;
+    event.preventDefault();
+    const wrap = document.querySelector(".viewer-wrap");
+    const rect = wrap.getBoundingClientRect();
+    const minPct = rect.width >= 560 ? Math.max(30, 280 / rect.width * 100) : 50;
+    const maxPct = rect.width >= 560 ? Math.min(70, (rect.width - 280) / rect.width * 100) : 50;
+    const move = (e) => {
+        const pct = Math.max(minPct, Math.min(maxPct, ((rect.right - e.clientX) / rect.width) * 100));
+        splitWidth = pct;
+        wrap.style.setProperty("--split-width", pct + "%");
+    };
+    const up = () => {
+        document.removeEventListener("mousemove", move);
+        document.removeEventListener("mouseup", up);
+        document.body.classList.remove("resizing", "resizing-split");
+        prefSet("splitWidth", splitWidth.toFixed(2));
+    };
+    document.body.classList.add("resizing", "resizing-split");
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
 }
 
 async function refreshCurrentDoc() {
@@ -1818,8 +2441,8 @@ function renderDocLink(doc, base) {
     link.title = "Открыть в Outline: " + currentDocUrl;
 }
 
-function renderCrumbs(oid) {
-    const el = $("docCrumbs");
+function renderCrumbs(oid, target, pane) {
+    const el = target || $("docCrumbs");
     el.innerHTML = "";
     const info = index[oid];
     if (!info) return;
@@ -1838,7 +2461,7 @@ function renderCrumbs(oid) {
         if (part.oid) {
             const a = document.createElement("a");
             a.textContent = part.title;
-            a.addEventListener("click", () => openDocument(part.oid, undefined, "navigate"));
+            a.addEventListener("click", () => pane === "split" ? openSplitDocument(part.oid, undefined, "navigate") : openDocument(part.oid, undefined, "navigate"));
             el.appendChild(a);
         } else {
             const s = document.createElement("span");
@@ -1852,8 +2475,8 @@ function parseMarkdownBlock(md) {
     return marked.parse(normalizeMarkdownTables(md));
 }
 
-function renderMarkdown(md) {
-    const el = $("docContent");
+function renderMarkdown(md, target) {
+    const el = target || $("docContent");
     el.innerHTML = DOMPurify.sanitize(transformNotices(md, 0), {
         ADD_TAGS: ["input"],
         ADD_ATTR: ["type", "checked", "disabled"],
@@ -2003,7 +2626,7 @@ function applyTocOpen(v) {
     $("docViewer").classList.toggle("toc-open", show);
 }
 
-async function onContentClick(e) {
+async function onContentClick(e, pane) {
     const code = e.target.closest("code");
     if (code && !code.closest("pre")) {
         const text = code.textContent;
@@ -2041,7 +2664,8 @@ async function onContentClick(e) {
             try {
                 const d = await go().GetDocumentByURLID(candidate);
                 if (d && d.OutlineID) {
-                    openDocument(d.OutlineID, undefined, "navigate");
+                    if (pane === "split") await openSplitDocument(d.OutlineID);
+                    else openDocument(d.OutlineID, undefined, "navigate");
                     found = true;
                     break;
                 }
@@ -2101,6 +2725,7 @@ async function runSearch(q) {
         for (const doc of results) {
             const item = document.createElement("div");
             item.className = "search-hit";
+            item.dataset.oid = doc.OutlineID;
             const t = document.createElement("div");
             t.className = "hit-title";
             highlightInto(t, doc.Title || "Без названия", q);
@@ -2141,13 +2766,14 @@ function highlightInto(el, text, q) {
 
 /* ---------- Поиск в документе ---------- */
 
-function findRoots() { return [$("docTitle"), $("docContent")]; }
+function findRoots() { return findPane === "split" ? [$("splitTitle"), $("splitContent")] : [$("docTitle"), $("docContent")]; }
 
 function findSignature() {
     return $("findInput").value + "\u0000" + find.caseSensitive + "\u0000" + find.regex;
 }
 
 function openFindBar(prefill) {
+    findPane = activePane === "split" && splitViewEnabled ? "split" : "main";
     find.open = true;
     uiShow($("findBar"), "flex");
     if (prefill !== undefined) $("findInput").value = prefill;
@@ -2189,7 +2815,8 @@ function runFind() {
     const input = $("findInput");
     input.classList.remove("invalid");
     const q = input.value;
-    if (!q || $("docViewer").style.display === "none") { updateFindCount(); return; }
+    const hasDoc = findPane === "split" ? $("splitDocViewer").style.display !== "none" : $("docViewer").style.display !== "none";
+    if (!q || !hasDoc) { updateFindCount(); return; }
 
     let re;
     try { re = buildRegex(q); }
@@ -2292,6 +2919,7 @@ async function syncNow() {
         await loadTree();
         updateStatus();
         await refreshCurrentDoc();
+        await refreshSplitDocument();
     } catch (err) {
         const msg = String(err);
         if (!msg.includes("уже выполняется")) {
@@ -2437,11 +3065,17 @@ function applyTheme(t) {
     btn.title = t === "dark" ? "Светлая тема" : "Тёмная тема";
 }
 
-function applyFullWidth(v) {
-    fullWidth = v;
-    prefSet("fullWidth", v ? "1" : "0");
-    $("docViewer").classList.toggle("full-width", v);
-    $("fwSwitch").classList.toggle("on", v);
+function applyFullWidth(v, pane = activePane) {
+    if (pane === "split") {
+        splitFullWidth = v;
+        prefSet("splitFullWidth", v ? "1" : "0");
+        $("splitDocViewer").classList.toggle("full-width", v);
+    } else {
+        fullWidth = v;
+        prefSet("fullWidth", v ? "1" : "0");
+        $("docViewer").classList.toggle("full-width", v);
+    }
+    if (activePane === pane) $("fwSwitch").classList.toggle("on", v);
 }
 
 function applyFontScale(v) {
@@ -2521,7 +3155,7 @@ function initResizer() {
         if (content.classList.contains("sidebar-auto-hide")) return;
         closeSideMenu();
         dragging = true;
-        document.body.classList.add("resizing");
+        document.body.classList.add("resizing", "resizing-sidebar");
         e.preventDefault();
     });
     document.addEventListener("mousemove", (e) => {
@@ -2533,7 +3167,7 @@ function initResizer() {
     document.addEventListener("mouseup", () => {
         if (!dragging) return;
         dragging = false;
-        document.body.classList.remove("resizing");
+        document.body.classList.remove("resizing", "resizing-sidebar");
         const w = parseInt(sidebar.style.width, 10) || 300;
         prefSet("sideWidth", w);
         setSideWidth(w);
