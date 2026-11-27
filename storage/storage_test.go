@@ -229,29 +229,36 @@ func TestMigratePlaintextRestoresOriginalOnEncryptionFailure(t *testing.T) {
 }
 
 func TestRecoverPlaintextMigrationAfterInterruptedSwap(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "cache.db")
-	db, err := NewDB(path, "")
-	require.NoError(t, err)
-	require.NoError(t, db.SaveSettings(&Settings{APIURL: "https://recover.example", APIKey: "preserve"}))
-	require.NoError(t, db.Close())
+	for _, state := range []string{"missing", "empty"} {
+		t.Run(state, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "cache.db")
+			db, err := NewDB(path, "")
+			require.NoError(t, err)
+			require.NoError(t, db.SaveSettings(&Settings{APIURL: "https://recover.example", APIKey: "preserve"}))
+			require.NoError(t, db.Close())
 
-	require.NoError(t, os.Rename(path, path+".plain"))
-	require.NoError(t, os.WriteFile(path+".encrypted.tmp", []byte("incomplete"), 0o600))
+			require.NoError(t, os.Rename(path, path+".plain"))
+			if state == "empty" {
+				require.NoError(t, os.WriteFile(path, nil, 0o600))
+			}
+			require.NoError(t, os.WriteFile(path+".encrypted.tmp", []byte("incomplete"), 0o600))
 
-	require.NoError(t, RecoverPlaintextMigration(path))
-	assert.True(t, IsPlaintextDB(path))
-	_, err = os.Stat(path + ".plain")
-	assert.True(t, os.IsNotExist(err))
-	_, err = os.Stat(path + ".encrypted.tmp")
-	assert.True(t, os.IsNotExist(err))
+			require.NoError(t, RecoverPlaintextMigration(path))
+			assert.True(t, IsPlaintextDB(path))
+			_, err = os.Stat(path + ".plain")
+			assert.True(t, os.IsNotExist(err))
+			_, err = os.Stat(path + ".encrypted.tmp")
+			assert.True(t, os.IsNotExist(err))
 
-	restored, err := NewDB(path, "")
-	require.NoError(t, err)
-	defer func() { _ = restored.Close() }()
-	settings, err := restored.GetSettings()
-	require.NoError(t, err)
-	assert.Equal(t, "https://recover.example", settings.APIURL)
-	assert.Equal(t, "preserve", settings.APIKey)
+			restored, err := NewDB(path, "")
+			require.NoError(t, err)
+			defer func() { _ = restored.Close() }()
+			settings, err := restored.GetSettings()
+			require.NoError(t, err)
+			assert.Equal(t, "https://recover.example", settings.APIURL)
+			assert.Equal(t, "preserve", settings.APIKey)
+		})
+	}
 }
 
 func TestMigratePlaintextSupportsOlderCacheSchema(t *testing.T) {
