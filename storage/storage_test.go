@@ -162,6 +162,8 @@ func TestMigratePlaintextPreservesAllStoredData(t *testing.T) {
 	assert.False(t, IsPlaintextDB(path))
 	_, err = os.Stat(path + ".plain")
 	assert.True(t, os.IsNotExist(err), "plaintext backup should be removed after successful migration")
+	_, err = os.Stat(path + ".encrypted.tmp")
+	assert.True(t, os.IsNotExist(err), "staged encrypted database should be installed and removed from its temporary path")
 
 	encrypted, err := NewDB(path, key)
 	require.NoError(t, err)
@@ -224,6 +226,32 @@ func TestMigratePlaintextRestoresOriginalOnEncryptionFailure(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://preserve.example", settings.APIURL)
 	assert.Equal(t, "keep-me", settings.APIKey)
+}
+
+func TestRecoverPlaintextMigrationAfterInterruptedSwap(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.db")
+	db, err := NewDB(path, "")
+	require.NoError(t, err)
+	require.NoError(t, db.SaveSettings(&Settings{APIURL: "https://recover.example", APIKey: "preserve"}))
+	require.NoError(t, db.Close())
+
+	require.NoError(t, os.Rename(path, path+".plain"))
+	require.NoError(t, os.WriteFile(path+".encrypted.tmp", []byte("incomplete"), 0o600))
+
+	require.NoError(t, RecoverPlaintextMigration(path))
+	assert.True(t, IsPlaintextDB(path))
+	_, err = os.Stat(path + ".plain")
+	assert.True(t, os.IsNotExist(err))
+	_, err = os.Stat(path + ".encrypted.tmp")
+	assert.True(t, os.IsNotExist(err))
+
+	restored, err := NewDB(path, "")
+	require.NoError(t, err)
+	defer func() { _ = restored.Close() }()
+	settings, err := restored.GetSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "https://recover.example", settings.APIURL)
+	assert.Equal(t, "preserve", settings.APIKey)
 }
 
 func TestMigratePlaintextSupportsOlderCacheSchema(t *testing.T) {
