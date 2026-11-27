@@ -35,7 +35,7 @@ let toastTimer = null, noticeTimer = null;
 let toastAction = null;
 let toastDuration = 4000;
 let updateCheckStarted = false;
-const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "sidebarAutoHide", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect", "openTabs", "pinnedTabs", "activeTabOID", "splitView", "splitDocumentOID", "splitTabs", "splitPinnedTabs", "splitActiveTabOID", "splitWidth"];
+const PREF_KEYS = ["theme", "fullWidth", "splitFullWidth", "fontScale", "sideWidth", "sidebarAutoHide", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect", "openTabs", "pinnedTabs", "activeTabOID", "splitView", "splitDocumentOID", "splitTabs", "splitPinnedTabs", "splitActiveTabOID", "splitWidth"];
 let prefsReady = false;
 let prefsTimer = null;
 const prefsDirty = new Map();
@@ -79,7 +79,8 @@ async function loadPrefs() {
         if (typeof remote[k] === "string") localStorage.setItem("or." + k, remote[k]);
     });
     applyTheme(prefGet("theme", "dark"));
-    applyFullWidth(prefGet("fullWidth") === "1");
+    applyFullWidth(prefGet("fullWidth") === "1", "main");
+    applyFullWidth(prefGet("splitFullWidth") === "1", "split");
     let scale = parseFloat(prefGet("fontScale", "1"));
     if (!(scale >= 0.7 && scale <= 2.0)) scale = 1;
     applyFontScale(scale);
@@ -127,6 +128,7 @@ async function loadPrefs() {
 }
 
 let fullWidth = prefGet("fullWidth") === "1";
+let splitFullWidth = prefGet("splitFullWidth") === "1";
 let tocOpen = prefGet("tocOpen") === "1";
 let fontScale = parseFloat(prefGet("fontScale", "1"));
 let lastTreeClick = { oid: null, time: 0 };
@@ -369,7 +371,7 @@ function bindUI() {
         closeMenu();
         openFindBar();
     });
-    $("menuFullWidth").addEventListener("click", () => { applyFullWidth(!fullWidth); });
+    $("menuFullWidth").addEventListener("click", () => { applyFullWidth(!(activePane === "split" ? splitFullWidth : fullWidth), activePane); });
     $("menuCapture").addEventListener("click", toggleCapture);
     $("menuLock").addEventListener("click", () => { closeSideMenu(); lockNow(); });
     $("menuReset").addEventListener("click", () => { closeSideMenu(); openResetModal(); });
@@ -422,7 +424,7 @@ function bindUI() {
         updateSettingsThemeToggle();
     });
     $("settingsFullWidth").addEventListener("click", () => {
-        applyFullWidth(!fullWidth);
+        applyFullWidth(!fullWidth, "main");
         updateSettingsFullWidth();
     });
     $("settingsZoomIn").addEventListener("click", () => { zoomIn(); updateSettingsZoom(); });
@@ -953,7 +955,7 @@ function bindContextMenu(target, getItems) {
 
 function openSideMenu() {
     closeMenu();
-    $("fwSwitch").classList.toggle("on", fullWidth);
+    $("fwSwitch").classList.toggle("on", activePane === "split" ? splitFullWidth : fullWidth);
     $("capSwitch").classList.toggle("on", captureProtect);
     uiShow($("sideMenu"), "block");
     $("sideAccountBtn").setAttribute("aria-expanded", "true");
@@ -3200,11 +3202,17 @@ function applyTheme(t) {
     btn.title = t === "dark" ? "Светлая тема" : "Тёмная тема";
 }
 
-function applyFullWidth(v) {
-    fullWidth = v;
-    prefSet("fullWidth", v ? "1" : "0");
-    $("docViewer").classList.toggle("full-width", v);
-    $("fwSwitch").classList.toggle("on", v);
+function applyFullWidth(v, pane = activePane) {
+    if (pane === "split") {
+        splitFullWidth = v;
+        prefSet("splitFullWidth", v ? "1" : "0");
+        $("splitDocViewer").classList.toggle("full-width", v);
+    } else {
+        fullWidth = v;
+        prefSet("fullWidth", v ? "1" : "0");
+        $("docViewer").classList.toggle("full-width", v);
+    }
+    if (activePane === pane) $("fwSwitch").classList.toggle("on", v);
 }
 
 function applyFontScale(v) {

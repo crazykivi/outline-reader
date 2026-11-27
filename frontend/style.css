@@ -189,18 +189,17 @@ body.resizing { user-select: none; cursor: col-resize; }
 .viewer-wrap.split-active .veiwer-div { right: calc(var(--split-width, 50%) + 17px); }
 .split-resizer { width: 5px; flex: none; cursor: col-resize; position: relative; z-index: 6; margin-left: -2px; margin-right: -3px; }
 .split-resizer:hover, body.resizing .split-resizer { background: var(--accent-soft); }
-.split-pane { flex: 0 0 var(--split-width, 50%); min-width: 280px; min-height: 0; display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--border); overflow: hidden; }
+.split-pane { position: relative; flex: 0 0 var(--split-width, 50%); min-width: 280px; min-height: 0; display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--border); overflow: hidden; }
 .split-tabbar { flex: none; display: flex; align-items: stretch; min-width: 0; border-bottom: 1px solid var(--border); background: var(--bg); }
 .split-tabbar .doc-tabs { flex: 1; min-width: 0; margin: 0; padding: 0 4px; }
 .split-controls { flex: none; display: flex; align-items: center; gap: 1px; padding: 0 5px; border-left: 1px solid var(--border); }
 .split-controls .btn-icon { width: 28px; height: 28px; }
 .split-pane .welcome { flex: 1; min-height: 0; }
-.split-doc-viewer { flex: 1; min-height: 0; max-width: none; margin: 0; padding: 24px 28px 64px; overflow: auto; scrollbar-gutter: stable both-edges; }
-.split-doc-viewer .doc-header { gap: 10px; }
-.split-doc-viewer .doc-header h2 { font-size: 22px; overflow-wrap: anywhere; }
-.split-doc-viewer .doc-header-main { min-width: 0; }
-.split-doc-viewer .doc-links { position: static; top: auto; right: auto; align-self: flex-end; }
-.split-doc-viewer .doc-content { max-width: none; margin: 0; font-size: calc(14px * var(--font-scale)); }
+.split-doc-viewer { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; scrollbar-gutter: stable both-edges; }
+.split-doc-viewer .doc-header h2 { overflow-wrap: anywhere; }
+.split-doc-viewer .doc-content { font-size: calc(14px * var(--font-scale)); }
+.split-pane .split-doc-links { right: 55px; }
+.split-pane .veiwer-div { top: 37px; right: 17px; }
 .pane-inactive .doc-tab.active { border-bottom-color: var(--text); }
 .split-pane .doc-tabs::-webkit-scrollbar { height: 3px; }
 .split-pane .doc-tab { flex-basis: 145px; min-width: 76px; }
