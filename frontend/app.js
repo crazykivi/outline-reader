@@ -298,7 +298,10 @@ function bindUI() {
         }
     });
     document.addEventListener("mouseup", () => { headerPress = null; });
-    window.addEventListener("resize", updateMaxState);
+    window.addEventListener("resize", () => {
+        updateMaxState();
+        if (splitViewEnabled) applySplitWidth();
+    });
     $("themeBtn").addEventListener("click", () => {
         applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
     });
@@ -2150,12 +2153,26 @@ function renderSplitView() {
     wrap.classList.toggle("split-active", splitViewEnabled);
     pane.style.display = splitViewEnabled ? "flex" : "none";
     $("splitResizer").style.display = splitViewEnabled ? "block" : "none";
-    wrap.style.setProperty("--split-width", splitWidth + "%");
+    applySplitWidth();
     button.title = splitViewEnabled ? "Скрыть разделение" : "Разделить рабочую область";
     button.setAttribute("aria-label", button.title);
     button.setAttribute("aria-pressed", String(splitViewEnabled));
     if (splitViewEnabled) renderSplitTabs();
     updateHistoryButtons();
+}
+
+function applySplitWidth() {
+    const wrap = document.querySelector(".viewer-wrap");
+    const width = wrap.clientWidth;
+    let pct = splitWidth;
+    if (width >= 560) {
+        const min = 280 / width * 100;
+        const max = Math.min(70, (width - 280) / width * 100);
+        pct = Math.max(min, Math.min(max, pct));
+    } else {
+        pct = 50;
+    }
+    wrap.style.setProperty("--split-width", pct + "%");
 }
 
 function toggleSplitView() {
