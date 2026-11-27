@@ -129,6 +129,11 @@ body.resizing { user-select: none; cursor: col-resize; }
     padding: 10px 10px 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px;
 }
 .sidebar-top-actions { display: flex; align-items: center; gap: 2px; }
+.doc-tree-toolbar {
+    position: sticky; top: 43px; z-index: 1;
+    display: flex; justify-content: flex-end; padding: 2px 8px 4px;
+    background: var(--panel);
+}
 .sidebar-toggle-icon { display: block; transition: transform .2s ease; }
 .sidebar-auto-hide .sidebar-toggle-icon { transform: scaleX(-1); }
 .sidebar-auto-hide .sidebar {
