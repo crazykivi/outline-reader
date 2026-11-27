@@ -104,6 +104,9 @@ func (a *App) init() error {
 	} else {
 		a.dataDir = filepath.Dir(a.dbPath)
 	}
+	if err := storage.RecoverPlaintextMigration(a.dbPath); err != nil {
+		return fmt.Errorf("восстановление прерванной миграции базы: %w", err)
+	}
 	log.Printf("[APP] база заблокирована, нужен мастер-пароль (portable=%v)", a.portable)
 	return nil
 }
