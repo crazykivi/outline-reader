@@ -48,3 +48,27 @@ test("leaves ordinary prose untouched", () => {
     const source = "A | B is just prose here.\n\nAnother paragraph.";
     assert.equal(normalizeMarkdownTables(source), source);
 });
+
+
+test("preserves omitted leading cells in Outline tables with bold headers", () => {
+    const source = [
+        "| **Машина** | **Ресурс** | **Логин** | **Пароль** |",
+        "|----|----|----|----|",
+        "| Srv-prod | тутбылресурс | тутбыллогин | тутбылпароль |",
+        "| тутбылресурс | тутбыллогин | тутбылпароль |",
+        "| тутбылресурс | тутбыллогин | тутбылпароль |",
+        "| Srv-prod2 | тутбылресурс | тутбыллогин | тутбылпароль |",
+    ].join("\n");
+
+    const result = normalizeMarkdownTables(source).split("\n");
+    assert.equal(result[3], "|  | тутбылресурс | тутбыллогин | тутбылпароль |");
+    assert.equal(result[4], "|  | тутбылресурс | тутбыллогин | тутбылпароль |");
+});
+
+test("keeps standard Markdown tables right-padded", () => {
+    const source = "| Machine | Resource | Login | Password |\n| --- | --- | --- | --- |\n| Srv-prod | resource | login |";
+    assert.equal(
+        normalizeMarkdownTables(source).split("\n")[2],
+        "| Srv-prod | resource | login |  |"
+    );
+});
