@@ -123,7 +123,7 @@ body.resizing { user-select: none; cursor: col-resize; }
     overflow: hidden; flex-shrink: 0; padding: 0;
 }
 .sidebar-resizer { width: 5px; flex: none; cursor: col-resize; margin-left: -5px; z-index: 5; }
-.sidebar-resizer:hover, body.resizing .sidebar-resizer { background: var(--accent-soft); }
+.sidebar-resizer:hover, body.resizing-sidebar .sidebar-resizer { background: var(--accent-soft); }
 .sidebar-top {
     position: sticky; top: 0; background: var(--panel); z-index: 2;
     display: flex; align-items: center; justify-content: space-between;
@@ -191,7 +191,7 @@ body.resizing { user-select: none; cursor: col-resize; }
 .viewer-wrap.split-active .viewer .doc-links { right: calc(var(--split-width, 50%) + 55px); }
 .viewer-wrap.split-active .veiwer-div { right: calc(var(--split-width, 50%) + 17px); }
 .split-resizer { width: 5px; flex: none; cursor: col-resize; position: relative; z-index: 6; margin-left: -2px; margin-right: -3px; }
-.split-resizer:hover, body.resizing .split-resizer { background: var(--accent-soft); }
+.split-resizer:hover, body.resizing-split .split-resizer { background: var(--accent-soft); }
 .split-pane { position: relative; flex: 0 0 var(--split-width, 50%); min-width: 280px; min-height: 0; display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--border); overflow: hidden; }
 .split-tabbar { flex: none; display: flex; align-items: stretch; min-width: 0; border-bottom: 1px solid var(--border); background: var(--bg); }
 .split-tabbar .doc-tabs { flex: 1; min-width: 0; margin: 0; padding: 0 4px; }
