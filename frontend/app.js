@@ -2622,9 +2622,19 @@ async function checkForUpdates({ notify = false } = {}) {
                     onClick: openUpdateSettings,
                 });
             }
-            status.innerHTML = `Доступна новая версия: <strong>v${update.version}</strong><br>
-                <button id="settingsInstallUpdate" class="btn-primary" style="margin-top: 8px;">Скачать и установить</button>`;
-            $("settingsInstallUpdate").addEventListener("click", () => installUpdate(update));
+            status.replaceChildren();
+            status.append("Доступна новая версия: ");
+            const version = document.createElement("strong");
+            version.textContent = "v" + update.version;
+            status.appendChild(version);
+            status.appendChild(document.createElement("br"));
+            const installButton = document.createElement("button");
+            installButton.id = "settingsInstallUpdate";
+            installButton.className = "btn-primary";
+            installButton.style.marginTop = "8px";
+            installButton.textContent = "Скачать и установить";
+            installButton.addEventListener("click", () => installUpdate(update));
+            status.appendChild(installButton);
             return update;
         } else {
             status.textContent = (update && update.note) || "У вас последняя версия";
