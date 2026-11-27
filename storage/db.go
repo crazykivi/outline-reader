@@ -165,6 +165,60 @@ func IsPlaintextDB(path string) bool {
 	return string(hdr) == "SQLite format 3\x00"
 }
 
+func removeDBFiles(path string) error {
+	var result error
+	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
+		if err := os.Remove(path + suffix); err != nil && !os.IsNotExist(err) {
+			result = errors.Join(result, fmt.Errorf("удаление файла %s: %w", path+suffix, err))
+		}
+	}
+	return result
+}
+
+// RecoverPlaintextMigration restores the original database if a process stopped
+// after moving it aside but before installing the staged encrypted database.
+func RecoverPlaintextMigration(dbPath string) error {
+	if _, err := os.Stat(dbPath); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("проверка базы %s: %w", dbPath, err)
+	}
+
+	backup := dbPath + ".plain"
+	if !IsPlaintextDB(backup) {
+		if _, err := os.Stat(backup); err == nil {
+			return fmt.Errorf("резервный файл %s не является plaintext SQLite", backup)
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("проверка резервной базы %s: %w", backup, err)
+		}
+		if _, err := os.Stat(dbPath + ".encrypted.tmp"); err == nil {
+			return fmt.Errorf("основная база отсутствует, найден незавершённый зашифрованный файл %s", dbPath+".encrypted.tmp")
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("проверка временной базы: %w", err)
+		}
+		return nil
+	}
+
+	if err := removeDBFiles(dbPath + ".encrypted.tmp"); err != nil {
+		return fmt.Errorf("удаление незавершённой временной базы: %w", err)
+	}
+	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
+		if err := os.Remove(dbPath + suffix); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("удаление незавершённого файла %s: %w", dbPath+suffix, err)
+		}
+	}
+	if err := os.Rename(backup, dbPath); err != nil {
+		return fmt.Errorf("восстановление исходной базы %s: %w", dbPath, err)
+	}
+	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
+		if err := os.Remove(backup + suffix); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("удаление резервного файла %s: %w", backup+suffix, err)
+		}
+	}
+	log.Printf("[DB] восстановлена исходная база после прерванной миграции")
+	return nil
+}
+
 func MigratePlaintext(dbPath, keyHex string) error {
 	if !IsPlaintextDB(dbPath) {
 		return fmt.Errorf("исходная база %s не является plaintext SQLite", dbPath)
@@ -247,35 +301,39 @@ func MigratePlaintext(dbPath, keyHex string) error {
 		return fmt.Errorf("закрытие исходной базы: %w", err)
 	}
 
-	suffixes := []string{"", "-wal", "-shm", "-journal"}
-	moved := make([]string, 0, len(suffixes))
-	for _, suf := range suffixes {
-		_, statErr := os.Stat(dbPath + suf)
-		if os.IsNotExist(statErr) {
-			continue
+	tmpPath := dbPath + ".encrypted.tmp"
+	if err := removeDBFiles(tmpPath); err != nil {
+		return fmt.Errorf("очистка временной базы миграции: %w", err)
+	}
+	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
+		if _, err := os.Stat(dbPath + ".plain" + suffix); err == nil {
+			return fmt.Errorf("резервный файл миграции уже существует: %s", dbPath+".plain"+suffix)
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("проверка резервного файла миграции: %w", err)
 		}
-		if statErr != nil {
-			return restorePlaintextFiles(dbPath, moved, false, fmt.Errorf("проверка файла %s: %w", dbPath+suf, statErr))
-		}
-		if err := os.Rename(dbPath+suf, dbPath+".plain"+suf); err != nil {
-			return restorePlaintextFiles(dbPath, moved, false, fmt.Errorf("сохранение исходного файла %s: %w", dbPath+suf, err))
-		}
-		moved = append(moved, suf)
 	}
 
+	nd, err := NewDB(tmpPath, keyHex)
+	if err != nil {
+		_ = removeDBFiles(tmpPath)
+		return fmt.Errorf("создание временной зашифрованной базы: %w", err)
+	}
 	rollback := func(cause error, nd *DB) error {
 		if nd != nil {
 			if closeErr := nd.Close(); closeErr != nil {
-				cause = errors.Join(cause, fmt.Errorf("закрытие новой базы: %w", closeErr))
+				cause = errors.Join(cause, fmt.Errorf("закрытие временной базы: %w", closeErr))
 			}
 		}
-		return restorePlaintextFiles(dbPath, moved, true, cause)
+		if removeErr := removeDBFiles(tmpPath); removeErr != nil {
+			cause = errors.Join(cause, removeErr)
+		}
+		if len(moved) > 0 {
+			return restorePlaintextFiles(dbPath, moved, true, cause)
+		}
+		return cause
 	}
-
-	nd, err := NewDB(dbPath, keyHex)
-	if err != nil {
-		return rollback(fmt.Errorf("создание зашифрованной базы: %w", err), nil)
-	}
+	suffixes := []string{"", "-wal", "-shm", "-journal"}
+	moved := make([]string, 0, len(suffixes))
 	if len(cols) > 0 {
 		if err := nd.db.CreateInBatches(&cols, 200).Error; err != nil {
 			return rollback(fmt.Errorf("перенос коллекций: %w", err), nd)
@@ -314,12 +372,29 @@ func MigratePlaintext(dbPath, keyHex string) error {
 		}
 	}
 	if err := nd.Close(); err != nil {
-		return rollback(fmt.Errorf("закрытие зашифрованной базы: %w", err), nil)
+		return rollback(fmt.Errorf("закрытие временной зашифрованной базы: %w", err), nil)
+	}
+	nd = nil
+
+	for _, suffix := range suffixes {
+		if _, err := os.Stat(dbPath + suffix); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return rollback(fmt.Errorf("проверка исходного файла %s: %w", dbPath+suffix, err), nil)
+		}
+		if err := os.Rename(dbPath+suffix, dbPath+".plain"+suffix); err != nil {
+			return rollback(fmt.Errorf("сохранение исходного файла %s: %w", dbPath+suffix, err), nil)
+		}
+		moved = append(moved, suffix)
+	}
+	if err := os.Rename(tmpPath, dbPath); err != nil {
+		return rollback(fmt.Errorf("установка зашифрованной базы: %w", err), nil)
 	}
 
-	for _, suf := range moved {
-		if err := os.Remove(dbPath + ".plain" + suf); err != nil && !os.IsNotExist(err) {
-			log.Printf("[DB] не удалось удалить резервный файл %s: %v", dbPath+".plain"+suf, err)
+	for _, suffix := range []string{"-wal", "-shm", "-journal", ""} {
+		if err := os.Remove(dbPath + ".plain" + suffix); err != nil && !os.IsNotExist(err) {
+			log.Printf("[DB] не удалось удалить резервный файл %s: %v", dbPath+".plain"+suffix, err)
 		}
 	}
 	log.Printf("[DB] существующий кэш зашифрован, docs=%d", len(docs))
