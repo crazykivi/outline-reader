@@ -1961,7 +1961,7 @@ function createSplitEmptyTabID() {
 function createSplitDuplicateTabID(oid) {
     let id;
     do { id = DUPLICATE_TAB_PREFIX + "split_" + Date.now() + "_" + (++emptyTabSequence) + ":" + encodeURIComponent(oid); }
-    while (splitWorkspace.tabs.includes(id));
+    while (splitWorkspace.tabs.includes(id) || mainTabs.tabs.includes(id));
     return id;
 }
 
