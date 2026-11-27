@@ -1142,7 +1142,7 @@ async function updateStatus() {
         const sameDay = d.toDateString() === new Date().toDateString();
         const day = sameDay ? "" : " " + d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
         el.textContent = st.total + " док · " + hm + day;
-        $("sideStatus").title = "Последняя синхронизация: " + d.function toLocaleString() { [native code] }("ru-RU");
+        $("sideStatus").title = "Последняя синхронизация: " + d.toLocaleString("ru-RU");
         const parts = [];
         if (st.added) parts.push("+" + st.added);
         if (st.updated) parts.push("~" + st.updated);
@@ -1928,7 +1928,7 @@ function showDoc(doc, base) {
     $("welcomeScreen").style.display = "none";
     $("docViewer").style.display = "block";
     $("docTitle").textContent = doc.Title || "Без названия";
-    $("docDate").textContent = doc.UpdatedAt ? "Обновлено: " + new Date(doc.UpdatedAt).function toLocaleString() { [native code] }("ru-RU") : "";
+    $("docDate").textContent = doc.UpdatedAt ? "Обновлено: " + new Date(doc.UpdatedAt).toLocaleString("ru-RU") : "";
     currentDocUpdated = doc.UpdatedAt || "";
     renderDocLink(doc, base);
     renderCrumbs(doc.OutlineID);
@@ -2375,7 +2375,7 @@ function showSplitDoc(doc) {
     $("splitDocViewer").style.display = "block";
     $("splitTitle").textContent = doc.Title || "Без названия";
     $("splitTitle").title = doc.Title || "Без названия";
-    $("splitDate").textContent = doc.UpdatedAt ? "Обновлено: " + new Date(doc.UpdatedAt).function toLocaleString() { [native code] }("ru-RU") : "";
+    $("splitDate").textContent = doc.UpdatedAt ? "Обновлено: " + new Date(doc.UpdatedAt).toLocaleString("ru-RU") : "";
     const path = doc.Url || (doc.UrlID ? "/doc/" + doc.UrlID : "");
     const link = $("splitDocLink");
     const url = cachedApiURL && path ? cachedApiURL.replace(/\/+$/, "") + path : "";
@@ -3257,7 +3257,7 @@ function updateSettingsSyncStatus() {
         if (st.lastSync) {
             const d = new Date(st.lastSync);
             $("settingsSyncStatus").textContent = "Последняя синхронизация:";
-            $("settingsSyncTime").textContent = d.function toLocaleString() { [native code] }("ru-RU");
+            $("settingsSyncTime").textContent = d.toLocaleString("ru-RU");
         } else {
             $("settingsSyncStatus").textContent = "Не синхронизировано";
             $("settingsSyncTime").textContent = "";
