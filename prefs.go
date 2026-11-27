@@ -12,6 +12,7 @@ var prefKeys = map[string]bool{
 	"pinnedTabs":            true,
 	"activeTabOID":         true,
 	"fullWidth":            true,
+	"splitFullWidth":       true,
 	"fontScale":            true,
 	"sideWidth":            true,
 	"expanded":             true,
