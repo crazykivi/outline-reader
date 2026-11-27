@@ -17,6 +17,8 @@ var prefKeys = map[string]bool{
 	"expanded":             true,
 	"tocOpen":              true,
 	"captureProtect":       true,
+	"splitView":            true,
+	"splitDocumentOID":     true,
 }
 
 func (a *App) GetPrefs() (map[string]string, error) {
