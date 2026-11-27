@@ -1421,8 +1421,6 @@ function activateEmptyTab(oid) {
     renderTabs();
 }
 
-function createNewTab
-
 function createNewTab() {
     saveActiveTabScroll();
     const oid = createEmptyTabID();
@@ -1433,8 +1431,6 @@ function createNewTab() {
     const plus = $("newTabBtn");
     if (plus) plus.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
-
-function normalizeTabOrder
 
 function normalizeTabOrder() {
     tabWorkspace.normalizeOrder(mainTabs);
@@ -1670,8 +1666,6 @@ function togglePinnedTab(oid) {
     renderTabs();
 }
 
-function clearActiveDocument
-
 function clearActiveDocument() {
     currentOID = null;
     currentDocUpdated = "";
@@ -1711,8 +1705,6 @@ function closeTab(oid) {
     saveOpenTabs();
     renderTabs();
 }
-
-function closeUnpinnedTabs
 
 function closeUnpinnedTabs() {
     const result = tabWorkspace.closeUnpinned("main");
@@ -2062,8 +2054,6 @@ function toggleSplitPinnedTab(id) {
     renderSplitTabs();
 }
 
-function createSplitTab
-
 function createSplitTab() {
     splitOpenRequestID++;
     saveActiveSplitScroll();
@@ -2080,8 +2070,6 @@ function createSplitTab() {
     renderSplitTabs();
     updateHistoryButtons();
 }
-
-async function activateSplitTab
 
 async function activateSplitTab(id) {
     if (!id || id === splitWorkspace.activeId) { activePane = "split"; return; }
@@ -2105,8 +2093,6 @@ async function activateSplitTab(id) {
     }
     await openSplitDocument(getTabDocumentOID(id), undefined, "tab", id);
 }
-
-function closeSplitTab
 
 function closeSplitTab(id) {
     const result = tabWorkspace.closeTab("split", id);
@@ -2132,8 +2118,6 @@ function closeSplitTab(id) {
     markActive();
 }
 
-function closeUnpinnedSplitTabs
-
 function closeUnpinnedSplitTabs() {
     const result = tabWorkspace.closeUnpinned("split");
     if (!result) return;
@@ -2156,8 +2140,6 @@ function closeUnpinnedSplitTabs() {
     renderSplitTabs();
     updateHistoryButtons();
 }
-
-async function restoreSplitTabs
 
 async function restoreSplitTabs() {
     if (!splitWorkspace.tabs.length) {
@@ -2252,8 +2234,6 @@ function closeSplitView() {
         else void openDocument(getTabDocumentOID(mainTabs.activeId), undefined, "tab", mainTabs.activeId);
     }
 }
-
-async function openSplitDocument
 
 async function openSplitDocument(oid, query, source, targetTabID) {
     if (!oid) return;
