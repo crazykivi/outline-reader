@@ -1668,7 +1668,7 @@ function renderTabs() {
             tab.classList.add("dragging");
         });
         tab.addEventListener("dragover", (event) => {
-            if (!draggedTabOID || draggedTabOID === tabID) return;
+            if (!draggedTabOID || (draggedTabPane === "main" && draggedTabOID === tabID)) return;
             if (draggedTabPane === "split") { event.preventDefault(); event.dataTransfer.dropEffect = "move"; return; }
             if (pinnedTabs.includes(draggedTabOID) !== isPinned) return;
             event.preventDefault();
@@ -2086,7 +2086,7 @@ function renderSplitTabs() {
             tab.classList.add("dragging");
         });
         tab.addEventListener("dragover", (event) => {
-            if (!draggedTabOID || draggedTabOID === tabID) return;
+            if (!draggedTabOID || (draggedTabPane === "split" && draggedTabOID === tabID)) return;
             if (draggedTabPane === "main") { event.preventDefault(); event.dataTransfer.dropEffect = "move"; return; }
             if (splitPinnedTabs.includes(draggedTabOID) !== pinned) return;
             event.preventDefault();
@@ -2413,8 +2413,10 @@ async function openSplitDocument(oid, query, source, targetTabID) {
         } else {
             let nextID = oid;
             const previousDocumentOID = getTabDocumentOID(previousID);
-            if (previousID && isEmptyTab(previousID)) nextID = previousID;
-            else if (previousID && previousDocumentOID === oid) nextID = previousID;
+            if (previousID && isEmptyTab(previousID)) {
+                nextID = splitTabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid)
+                    ? createSplitDuplicateTabID(oid) : oid;
+            } else if (previousID && previousDocumentOID === oid) nextID = previousID;
             else if (splitTabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid)) nextID = createSplitDuplicateTabID(oid);
             if (previousID && previousID !== nextID) {
                 const saved = splitTabHistories.get(previousID) || { history: splitHistory.slice(), historyIndex: splitHistoryIndex };
