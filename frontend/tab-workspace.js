@@ -173,3 +173,5 @@ class TabWorkspace {
         return true;
     }
 }
+
+if (typeof module !== "undefined" && module.exports) module.exports = TabWorkspace;
