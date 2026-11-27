@@ -2194,8 +2194,7 @@ function toggleSplitView() {
     splitViewEnabled = !splitViewEnabled;
     prefSet("splitView", splitViewEnabled ? "1" : "0");
     if (splitViewEnabled && !splitWorkspace.tabs.length) {
-        splitWorkspace.tabs = [createSplitEmptyTabID()];
-        splitWorkspace.activeId = splitWorkspace.tabs[0];
+        tabWorkspace.createTab("split", createSplitEmptyTabID());
         saveSplitTabs();
     }
     if (!splitViewEnabled) activePane = "main";
