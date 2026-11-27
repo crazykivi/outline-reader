@@ -116,7 +116,7 @@ body.resizing { user-select: none; cursor: col-resize; }
 .spin svg { animation: rot 1s linear infinite; }
 @keyframes rot { to { transform: rotate(360deg); } }
 
-.content { flex: 1; display: flex; overflow: hidden; }
+.content { position: relative; flex: 1; display: flex; overflow: hidden; }
 .sidebar {
     width: 300px; background: var(--panel); border-right: 1px solid var(--border);
     overflow-y: auto; flex-shrink: 0; padding: 0; scrollbar-gutter: stable both-edges;
@@ -127,6 +127,25 @@ body.resizing { user-select: none; cursor: col-resize; }
     position: sticky; top: 0; background: var(--panel); z-index: 2;
     display: flex; align-items: center; justify-content: space-between;
     padding: 10px 10px 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px;
+}
+.sidebar-top-actions { display: flex; align-items: center; gap: 2px; }
+.sidebar-toggle-icon { display: block; transition: transform .2s ease; }
+.sidebar-auto-hide .sidebar-toggle-icon { transform: scaleX(-1); }
+.sidebar-auto-hide .sidebar {
+    position: absolute; inset: 0 auto 0 0; z-index: 30;
+    width: var(--side-w); transform: translateX(-100%);
+    transition: transform .28s cubic-bezier(.22,.75,.25,1);
+    box-shadow: 8px 0 24px rgba(0,0,0,.16);
+}
+.sidebar-auto-hide.sidebar-visible .sidebar { transform: translateX(0); }
+.sidebar-auto-hide .sidebar-resizer { display: none; }
+.sidebar-edge-trigger {
+    display: none; position: absolute; inset: 0 auto 0 0; z-index: 29;
+    width: 12px; cursor: pointer;
+}
+.sidebar-auto-hide .sidebar-edge-trigger { display: block; }
+@media (prefers-reduced-motion: reduce) {
+    .sidebar-auto-hide .sidebar, .sidebar-toggle-icon { transition: none; }
 }
 .sidebar-lower {
     position: fixed; left: 0; bottom: 0; height: 20px; width: var(--side-w);

@@ -34,7 +34,7 @@ let toastTimer = null, noticeTimer = null;
 let toastAction = null;
 let toastDuration = 4000;
 let updateCheckStarted = false;
-const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect", "openTabs", "pinnedTabs", "activeTabOID"];
+const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "sidebarAutoHide", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect", "openTabs", "pinnedTabs", "activeTabOID"];
 let prefsReady = false;
 let prefsTimer = null;
 const prefsDirty = new Map();
@@ -2473,11 +2473,52 @@ function setSideWidth(w) {
 }
 function initResizer() {
     const sidebar = document.querySelector(".sidebar");
+    const content = document.querySelector(".content");
+    const edge = document.createElement("div");
+    edge.className = "sidebar-edge-trigger";
+    edge.setAttribute("aria-hidden", "true");
+    content.prepend(edge);
     const saved = parseInt(prefGet("sideWidth", "300"), 10);
     if (saved >= 220 && saved <= 480) sidebar.style.width = saved + "px";
     setSideWidth(parseInt(sidebar.style.width, 10) || 300);
+
     let dragging = false;
+    let hideTimer = null;
+    const autoHide = prefGet("sidebarAutoHide", "0") === "1";
+    const setVisible = (visible) => content.classList.toggle("sidebar-visible", visible);
+    const scheduleHide = () => {
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(() => setVisible(false), 450);
+    };
+    const showSidebar = () => {
+        clearTimeout(hideTimer);
+        setVisible(true);
+    };
+    const setAutoHide = (enabled) => {
+        clearTimeout(hideTimer);
+        content.classList.toggle("sidebar-auto-hide", enabled);
+        const button = $("sidebarAutoHideBtn");
+        button.setAttribute("aria-pressed", String(enabled));
+        button.setAttribute("aria-label", enabled ? "Закрепить боковую панель" : "Скрывать боковую панель");
+        button.title = enabled ? "Закрепить боковую панель" : "Автоматически скрывать боковую панель";
+        prefSet("sidebarAutoHide", enabled ? "1" : "0");
+        setVisible(!enabled);
+    };
+    setAutoHide(autoHide);
+    $("sidebarAutoHideBtn").addEventListener("click", () => {
+        setAutoHide(!content.classList.contains("sidebar-auto-hide"));
+    });
+    sidebar.addEventListener("mouseenter", showSidebar);
+    sidebar.addEventListener("mouseleave", scheduleHide);
+    edge.addEventListener("mouseenter", showSidebar);
+    edge.addEventListener("mouseleave", scheduleHide);
+    sidebar.addEventListener("focusin", showSidebar);
+    sidebar.addEventListener("focusout", (event) => {
+        if (!sidebar.contains(event.relatedTarget)) scheduleHide();
+    });
+
     $("sidebarResizer").addEventListener("mousedown", (e) => {
+        if (content.classList.contains("sidebar-auto-hide")) return;
         closeSideMenu();
         dragging = true;
         document.body.classList.add("resizing");
