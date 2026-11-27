@@ -2168,8 +2168,9 @@ function toggleSplitView() {
     }
     if (!splitViewEnabled) activePane = "main";
     renderSplitView();
-    if (splitViewEnabled && splitActiveTabOID && !isEmptyTab(splitActiveTabOID) && !splitCurrentOID) {
-        void openSplitDocument(getTabDocumentOID(splitActiveTabOID), undefined, "tab", splitActiveTabOID);
+    if (splitViewEnabled && splitActiveTabOID && !isEmptyTab(splitActiveTabOID)) {
+        if (splitCurrentOID) void refreshSplitDocument();
+        else void openSplitDocument(getTabDocumentOID(splitActiveTabOID), undefined, "tab", splitActiveTabOID);
     }
 }
 
