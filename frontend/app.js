@@ -580,8 +580,8 @@ function bindUI() {
     $("splitViewCloseBtn").addEventListener("click", closeSplitView);
     $("splitBackBtn").addEventListener("click", goBackSplit);
     $("splitForwardBtn").addEventListener("click", goForwardSplit);
-    $("splitPane").addEventListener("pointerdown", () => { activePane = "split"; updateHistoryButtons(); });
-    $("splitPane").addEventListener("focusin", () => { activePane = "split"; updateHistoryButtons(); });
+    $("splitPane").addEventListener("pointerdown", () => { activePane = "split"; updateHistoryButtons(); markActive(); });
+    $("splitPane").addEventListener("focusin", () => { activePane = "split"; updateHistoryButtons(); markActive(); });
     $("splitTabs").addEventListener("wheel", (event) => {
         const bar = $("splitTabs");
         if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) { bar.scrollLeft += event.deltaY; event.preventDefault(); }
@@ -593,7 +593,7 @@ function bindUI() {
         event.preventDefault(); event.stopPropagation(); closeSplitTab(tab.dataset.oid);
     });
     bindContextMenu($("splitTabs"), (event, tab) => splitTabContextMenu(tab));
-    document.querySelector(".viewer").addEventListener("pointerdown", () => { activePane = "main"; updateHistoryButtons(); });
+    document.querySelector(".viewer").addEventListener("pointerdown", () => { activePane = "main"; updateHistoryButtons(); markActive(); });
     $("splitResizer").addEventListener("mousedown", startSplitResize);
     $("docTree").addEventListener("contextmenu", (event) => {
         const row = event.target.closest(".tree-row[data-oid], .search-hit[data-oid]");
@@ -2016,6 +2016,7 @@ function createSplitTab() {
     splitTabs.push(id);
     splitActiveTabOID = id;
     splitCurrentOID = null;
+    splitDocumentUpdated = "";
     splitHistory = [];
     splitHistoryIndex = -1;
     activePane = "split";
@@ -2312,7 +2313,7 @@ function goBackSplit() {
     splitHistoryIndex--;
     const oid = splitHistory[splitHistoryIndex];
     splitTabHistories.set(splitActiveTabOID, { history: splitHistory.slice(), historyIndex: splitHistoryIndex });
-    void openSplitDocument(oid, undefined, "navigate", splitActiveTabOID);
+    void openSplitDocument(oid, undefined, "tab", splitActiveTabOID);
 }
 
 function goForwardSplit() {
@@ -2320,7 +2321,7 @@ function goForwardSplit() {
     splitHistoryIndex++;
     const oid = splitHistory[splitHistoryIndex];
     splitTabHistories.set(splitActiveTabOID, { history: splitHistory.slice(), historyIndex: splitHistoryIndex });
-    void openSplitDocument(oid, undefined, "navigate", splitActiveTabOID);
+    void openSplitDocument(oid, undefined, "tab", splitActiveTabOID);
 }
 
 function startSplitResize(event) {
