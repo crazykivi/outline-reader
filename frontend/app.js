@@ -209,7 +209,7 @@ function bindUI() {
             items.push({
                 label: "Открыть справа",
                 icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2" width="13" height="12" rx="1.5"/><path d="M8 2v12"/></svg>',
-                disabled: getTabDocumentOID(oid) === currentOID,
+                disabled: !getTabDocumentOID(oid) || getTabDocumentOID(oid) === currentOID,
                 action: () => openSplitDocument(getTabDocumentOID(oid)),
             });
             items.push({ type: "separator" });
