@@ -206,6 +206,12 @@ function bindUI() {
                 icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m10.8 2.5 2.7 2.7-2 1.1-.9 3.1-1.3 1.3-2.1-2.1-3.1 3.1-.8-.8 3.1-3.1-2.1-2.1 1.3-1.3 3.1-.9z"/></svg>',
                 action: () => togglePinnedTab(oid),
             });
+            items.push({
+                label: "Открыть справа",
+                icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2" width="13" height="12" rx="1.5"/><path d="M8 2v12"/></svg>',
+                disabled: getTabDocumentOID(oid) === currentOID,
+                action: () => openSplitDocument(getTabDocumentOID(oid)),
+            });
             items.push({ type: "separator" });
             items.push({
                 label: "Закрыть вкладку",
