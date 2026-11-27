@@ -968,7 +968,7 @@ async function doReset() {
     try {
         clearTimeout(searchTimer);
         await go().ResetApp();
-        ["or.expanded", "or.theme", "or.sideWidth", "or.fullWidth", "or.fontScale", "or.tocOpen", "or.captureProtect", "or.openTabs", "or.pinnedTabs", "or.activeTabOID"]
+        ["or.expanded", "or.theme", "or.sideWidth", "or.fullWidth", "or.fontScale", "or.tocOpen", "or.captureProtect", "or.openTabs", "or.pinnedTabs", "or.activeTabOID", "or.splitView", "or.splitDocumentOID"]
             .forEach((k) => localStorage.removeItem(k));
         window.location.reload();
     } catch (err) {
@@ -1827,6 +1827,7 @@ function toggleSplitView() {
     splitViewEnabled = !splitViewEnabled;
     prefSet("splitView", splitViewEnabled ? "1" : "0");
     renderSplitView();
+    if (splitViewEnabled && splitDocumentOID && !splitDocumentUpdated) void restoreSplitDocument();
 }
 
 function closeSplitView() {
@@ -1844,6 +1845,10 @@ function closeSplitView() {
 
 async function openSplitDocument(oid) {
     if (!oid) return;
+    if (oid === currentOID) {
+        showToast("Документ уже открыт", "Он уже отображается в основной панели", false);
+        return;
+    }
     try {
         const doc = await go().GetDocument(oid);
         splitDocumentOID = doc.OutlineID;
