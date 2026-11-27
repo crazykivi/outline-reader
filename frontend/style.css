@@ -154,6 +154,7 @@ body.resizing { user-select: none; cursor: col-resize; }
     border: none; border-radius: 5px; color: var(--muted); cursor: pointer;
 }
 .btn-mini:hover { color: var(--text); }
+.btn-mini.active { color: var(--accent); background: var(--accent-soft); }
 
 .tree-action {
     width: 28px; height: 28px; padding: 0; flex: none;
