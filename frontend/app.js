@@ -1824,7 +1824,7 @@ function renderSplitView() {
     button.classList.toggle("active", splitViewEnabled);
     button.title = splitViewEnabled ? "Скрыть вторую панель" : "Показать вторую панель";
     button.setAttribute("aria-label", button.title);
-    const hasDocument = !!splitDocumentOID && !!splitDocumentUpdated;
+    const hasDocument = !!splitDocumentOID;
     $("splitEmpty").style.display = hasDocument ? "none" : "flex";
     $("splitScroll").style.display = hasDocument ? "block" : "none";
 }
@@ -1833,7 +1833,7 @@ function toggleSplitView() {
     splitViewEnabled = !splitViewEnabled;
     prefSet("splitView", splitViewEnabled ? "1" : "0");
     renderSplitView();
-    if (splitViewEnabled && splitDocumentOID && !splitDocumentUpdated) void restoreSplitDocument();
+    if (splitViewEnabled && splitDocumentOID) void refreshSplitDocument();
 }
 
 function closeSplitView() {
