@@ -27,6 +27,7 @@ const DUPLICATE_TAB_PREFIX = "__outline_reader_duplicate_tab__";
 let tabsRestored = false;
 let openRequestID = 0;
 let draggedTabOID = null;
+let draggedTabPane = null;
 let contextMenuElement = null;
 let currentDocUpdated = "";
 let searchTimer = null;
@@ -231,7 +232,7 @@ function bindUI() {
                 action: () => togglePinnedTab(oid),
             });
             items.push({
-                label: "Открыть справа",
+                label: "Открыть в другой панели",
                 icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2" width="13" height="12" rx="1.5"/><path d="M8 2v12"/></svg>',
                 disabled: !getTabDocumentOID(oid) || getTabDocumentOID(oid) === currentOID,
                 action: () => openSplitDocument(getTabDocumentOID(oid)),
@@ -614,7 +615,7 @@ function bindUI() {
         event.stopPropagation();
         const oid = row.dataset.oid;
         showContextMenu(event, [{
-            label: "Открыть справа",
+            label: "Открыть в другой панели",
             icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2" width="13" height="12" rx="1.5"/><path d="M8 2v12"/></svg>',
             action: () => openSplitDocument(oid),
         }]);
@@ -1490,6 +1491,115 @@ async function restoreOpenTabs() {
     renderTabs();
 }
 
+function moveTabBetweenPanes(tabID, sourcePane, targetPane, targetTabID, after) {
+    if (!tabID || sourcePane === targetPane) return false;
+    const sourceTabs = sourcePane === "main" ? openTabs : splitTabs;
+    const targetTabs = targetPane === "main" ? openTabs : splitTabs;
+    const sourcePinned = sourcePane === "main" ? pinnedTabs : splitPinnedTabs;
+    const targetPinned = targetPane === "main" ? pinnedTabs : splitPinnedTabs;
+    const sourceIndex = sourceTabs.indexOf(tabID);
+    if (sourceIndex < 0) return false;
+    if (sourcePane === "main") saveActiveTabScroll();
+    else saveActiveSplitScroll();
+
+    const wasActive = sourcePane === "main" ? activeTabOID === tabID : splitActiveTabOID === tabID;
+    const wasPinned = sourcePinned.includes(tabID);
+    sourceTabs.splice(sourceIndex, 1);
+    const historyMap = sourcePane === "main" ? tabHistories : splitTabHistories;
+    const scrollMap = sourcePane === "main" ? tabScrollPositions : splitTabScrollPositions;
+    const targetHistoryMap = targetPane === "main" ? tabHistories : splitTabHistories;
+    const targetScrollMap = targetPane === "main" ? tabScrollPositions : splitTabScrollPositions;
+    const savedHistory = historyMap.get(tabID);
+    const savedScroll = scrollMap.get(tabID);
+    historyMap.delete(tabID);
+    scrollMap.delete(tabID);
+    if (wasPinned) sourcePinned.splice(sourcePinned.indexOf(tabID), 1);
+
+    let movedID = tabID;
+    if (targetTabs.includes(movedID)) {
+        const oid = getTabDocumentOID(movedID);
+        movedID = oid
+            ? (targetPane === "main" ? createDuplicateTabID(oid) : createSplitDuplicateTabID(oid))
+            : (targetPane === "main" ? createEmptyTabID() : createSplitEmptyTabID());
+    }
+    const targetIndex = targetTabID ? targetTabs.indexOf(targetTabID) : -1;
+    let insertAt = targetIndex < 0
+        ? (wasPinned ? targetTabs.filter((id) => targetPinned.includes(id)).length : targetTabs.length)
+        : targetIndex + (after ? 1 : 0);
+    targetTabs.splice(insertAt, 0, movedID);
+    if (wasPinned) targetPinned.push(movedID);
+    if (savedHistory) targetHistoryMap.set(movedID, savedHistory);
+    if (savedScroll !== undefined) targetScrollMap.set(movedID, savedScroll);
+
+    if (sourcePane === "main") {
+        if (wasActive) {
+            activeTabOID = openTabs[Math.min(sourceIndex, openTabs.length - 1)] || createEmptyTabID();
+            if (!openTabs.length) openTabs.push(activeTabOID);
+            openRequestID++;
+        }
+        saveOpenTabs();
+        renderTabs();
+    } else {
+        if (wasActive) {
+            splitActiveTabOID = splitTabs[Math.min(sourceIndex, splitTabs.length - 1)] || createSplitEmptyTabID();
+            if (!splitTabs.length) splitTabs.push(splitActiveTabOID);
+            splitOpenRequestID++;
+        }
+        saveSplitTabs();
+        renderSplitTabs();
+    }
+
+    if (targetPane === "main") {
+        activePane = "main";
+        activeTabOID = movedID;
+        saveOpenTabs();
+        renderTabs();
+        if (isEmptyTab(movedID)) activateEmptyTab(movedID);
+        else void openDocument(getTabDocumentOID(movedID), undefined, "tab", movedID);
+    } else {
+        activePane = "split";
+        splitActiveTabOID = movedID;
+        saveSplitTabs();
+        renderSplitTabs();
+        if (isEmptyTab(movedID)) {
+            splitOpenRequestID++;
+            splitCurrentOID = null;
+            splitDocumentOID = null;
+            splitHistory = [];
+            splitHistoryIndex = -1;
+            $("splitWelcome").style.display = "flex";
+            $("splitDocViewer").style.display = "none";
+            updateHistoryButtons();
+            markActive();
+        } else {
+            void openSplitDocument(getTabDocumentOID(movedID), undefined, "tab", movedID);
+        }
+    }
+
+    if (sourcePane === "main" && wasActive && activeTabOID !== movedID) {
+        if (isEmptyTab(activeTabOID)) activateEmptyTab(activeTabOID);
+        else void openDocument(getTabDocumentOID(activeTabOID), undefined, "tab", activeTabOID);
+    } else if (sourcePane === "split" && wasActive && splitActiveTabOID !== movedID) {
+        if (isEmptyTab(splitActiveTabOID)) {
+            splitCurrentOID = null;
+            splitDocumentOID = null;
+            $("splitWelcome").style.display = "flex";
+            $("splitDocViewer").style.display = "none";
+        } else {
+            void openSplitDocument(getTabDocumentOID(splitActiveTabOID), undefined, "tab", splitActiveTabOID);
+        }
+    }
+    return true;
+}
+
+function handleTabBarDrop(event, targetPane) {
+    if (!draggedTabOID || !draggedTabPane || draggedTabPane === targetPane) return;
+    event.preventDefault();
+    moveTabBetweenPanes(draggedTabOID, draggedTabPane, targetPane, null, false);
+    draggedTabOID = null;
+    draggedTabPane = null;
+}
+
 function renderTabs() {
     const bar = $("docTabs");
     if (!bar) return;
@@ -1549,12 +1659,14 @@ function renderTabs() {
         });
         tab.addEventListener("dragstart", (event) => {
             draggedTabOID = tabID;
+            draggedTabPane = "main";
             event.dataTransfer.effectAllowed = "move";
             event.dataTransfer.setData("text/plain", tabID);
             tab.classList.add("dragging");
         });
         tab.addEventListener("dragover", (event) => {
             if (!draggedTabOID || draggedTabOID === tabID) return;
+            if (draggedTabPane === "split") { event.preventDefault(); event.dataTransfer.dropEffect = "move"; return; }
             if (pinnedTabs.includes(draggedTabOID) !== isPinned) return;
             event.preventDefault();
             event.dataTransfer.dropEffect = "move";
@@ -1564,13 +1676,17 @@ function renderTabs() {
         });
         tab.addEventListener("dragleave", () => tab.classList.remove("drop-before", "drop-after"));
         tab.addEventListener("drop", (event) => {
-            if (!draggedTabOID || pinnedTabs.includes(draggedTabOID) !== isPinned) return;
+            if (!draggedTabOID) return;
             event.preventDefault();
             const after = event.clientX >= tab.getBoundingClientRect().left + tab.offsetWidth / 2;
-            reorderTab(draggedTabOID, tabID, after);
+            if (draggedTabPane === "split") moveTabBetweenPanes(draggedTabOID, "split", "main", tabID, after);
+            else if (pinnedTabs.includes(draggedTabOID) === isPinned) reorderTab(draggedTabOID, tabID, after);
+            draggedTabOID = null;
+            draggedTabPane = null;
         });
         tab.addEventListener("dragend", () => {
             draggedTabOID = null;
+            draggedTabPane = null;
             bar.querySelectorAll(".doc-tab").forEach((element) => element.classList.remove("dragging", "drop-before", "drop-after"));
         });
         bar.appendChild(tab);
@@ -1585,6 +1701,12 @@ function renderTabs() {
     add.setAttribute("aria-label", "Открыть новую вкладку");
     add.textContent = "+";
     add.addEventListener("click", createNewTab);
+    bar.addEventListener("dragover", (event) => {
+        if (draggedTabPane !== "split") return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+    });
+    bar.addEventListener("drop", (event) => handleTabBarDrop(event, "main"));
     bar.appendChild(add);
 }
 
@@ -1955,12 +2077,15 @@ function renderSplitTabs() {
         tab.addEventListener("click", () => activateSplitTab(tabID));
         tab.addEventListener("dragstart", (event) => {
             draggedTabOID = tabID;
+            draggedTabPane = "split";
             event.dataTransfer.effectAllowed = "move";
             event.dataTransfer.setData("text/plain", tabID);
             tab.classList.add("dragging");
         });
         tab.addEventListener("dragover", (event) => {
-            if (!draggedTabOID || draggedTabOID === tabID || splitPinnedTabs.includes(draggedTabOID) !== pinned) return;
+            if (!draggedTabOID || draggedTabOID === tabID) return;
+            if (draggedTabPane === "main") { event.preventDefault(); event.dataTransfer.dropEffect = "move"; return; }
+            if (splitPinnedTabs.includes(draggedTabOID) !== pinned) return;
             event.preventDefault();
             const before = event.clientX < tab.getBoundingClientRect().left + tab.offsetWidth / 2;
             tab.classList.toggle("drop-before", before);
@@ -1968,21 +2093,30 @@ function renderSplitTabs() {
         });
         tab.addEventListener("dragleave", () => tab.classList.remove("drop-before", "drop-after"));
         tab.addEventListener("drop", (event) => {
-            if (!draggedTabOID || splitPinnedTabs.includes(draggedTabOID) !== pinned) return;
+            if (!draggedTabOID) return;
             event.preventDefault();
+            const after = event.clientX >= tab.getBoundingClientRect().left + tab.offsetWidth / 2;
+            if (draggedTabPane === "main") {
+                moveTabBetweenPanes(draggedTabOID, "main", "split", tabID, after);
+                draggedTabOID = null;
+                draggedTabPane = null;
+                return;
+            }
+            if (splitPinnedTabs.includes(draggedTabOID) !== pinned) return;
             const source = splitTabs.indexOf(draggedTabOID);
             const target = splitTabs.indexOf(tabID);
             if (source < 0 || target < 0) return;
             const moved = splitTabs.splice(source, 1)[0];
             const nextTarget = splitTabs.indexOf(tabID);
-            const after = event.clientX >= tab.getBoundingClientRect().left + tab.offsetWidth / 2;
             splitTabs.splice(nextTarget + (after ? 1 : 0), 0, moved);
             draggedTabOID = null;
+            draggedTabPane = null;
             saveSplitTabs();
             renderSplitTabs();
         });
         tab.addEventListener("dragend", () => {
             draggedTabOID = null;
+            draggedTabPane = null;
             bar.querySelectorAll(".doc-tab").forEach((el) => el.classList.remove("dragging", "drop-before", "drop-after"));
         });
         bar.appendChild(tab);
@@ -1995,6 +2129,12 @@ function renderSplitTabs() {
     add.setAttribute("aria-label", "Открыть новую вкладку справа");
     add.textContent = "+";
     add.addEventListener("click", createSplitTab);
+    bar.addEventListener("dragover", (event) => {
+        if (draggedTabPane !== "main") return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+    });
+    bar.addEventListener("drop", (event) => handleTabBarDrop(event, "split"));
     bar.appendChild(add);
 }
 
@@ -2252,6 +2392,16 @@ async function openSplitDocument(oid, query, source, targetTabID) {
         const previousID = splitActiveTabOID;
         if (source === "tab") {
             targetTabID = targetTabID || oid;
+            if (isEmptyTab(targetTabID)) {
+                const emptyID = targetTabID;
+                targetTabID = splitTabs.some((id) => id !== emptyID && getTabDocumentOID(id) === oid)
+                    ? createSplitDuplicateTabID(oid) : oid;
+                const emptyPos = splitTabs.indexOf(emptyID);
+                if (emptyPos >= 0) splitTabs[emptyPos] = targetTabID;
+                if (splitPinnedTabs.includes(emptyID)) splitPinnedTabs = splitPinnedTabs.map((id) => id === emptyID ? targetTabID : id);
+                splitTabHistories.delete(emptyID);
+                splitTabScrollPositions.delete(emptyID);
+            }
             const saved = splitTabHistories.get(targetTabID);
             splitHistory = saved ? saved.history.slice() : [oid];
             splitHistoryIndex = saved ? saved.historyIndex : 0;
