@@ -134,6 +134,7 @@ let captureBusy = false;
 let splitViewEnabled = prefGet("splitView") === "1";
 let splitDocumentOID = prefGet("splitDocumentOID", "") || null;
 let splitDocumentUpdated = "";
+let splitOpenRequestID = 0;
 
 const palette = { open: false, items: [], sel: 0, timer: null };
 
@@ -1837,6 +1838,7 @@ function toggleSplitView() {
 }
 
 function closeSplitView() {
+    splitOpenRequestID++;
     splitViewEnabled = false;
     splitDocumentOID = null;
     splitDocumentUpdated = "";
@@ -1851,12 +1853,14 @@ function closeSplitView() {
 
 async function openSplitDocument(oid) {
     if (!oid) return;
+    const requestID = ++splitOpenRequestID;
     if (oid === currentOID) {
         showToast("Документ уже открыт", "Он уже отображается в основной панели", false);
         return;
     }
     try {
         const doc = await go().GetDocument(oid);
+        if (requestID !== splitOpenRequestID) return;
         splitDocumentOID = doc.OutlineID;
         splitViewEnabled = true;
         prefSet("splitDocumentOID", splitDocumentOID);
@@ -1864,13 +1868,16 @@ async function openSplitDocument(oid) {
         showSplitDoc(doc);
         renderSplitView();
     } catch (err) {
-        showToast("Ошибка", "Не удалось открыть документ справа: " + err, true);
+        if (requestID === splitOpenRequestID) showToast("Ошибка", "Не удалось открыть документ справа: " + err, true);
     }
 }
 
 async function restoreSplitDocument() {
+    const oid = splitDocumentOID;
+    const requestID = ++splitOpenRequestID;
     try {
-        const doc = await go().GetDocument(splitDocumentOID);
+        const doc = await go().GetDocument(oid);
+        if (requestID !== splitOpenRequestID || splitDocumentOID !== oid) return;
         showSplitDoc(doc);
     } catch (err) {
         splitDocumentOID = null;
@@ -1894,13 +1901,17 @@ function showSplitDoc(doc) {
 
 async function refreshSplitDocument() {
     if (!splitViewEnabled || !splitDocumentOID) return;
+    const oid = splitDocumentOID;
+    const requestID = ++splitOpenRequestID;
     try {
-        const doc = await go().GetDocument(splitDocumentOID);
+        const doc = await go().GetDocument(oid);
+        if (requestID !== splitOpenRequestID || splitDocumentOID !== oid || !splitViewEnabled) return;
         if ((doc.UpdatedAt || "") === splitDocumentUpdated) return;
         const scroll = $("splitScroll").scrollTop;
         showSplitDoc(doc);
         $("splitScroll").scrollTop = scroll;
     } catch (err) {
+        if (requestID !== splitOpenRequestID || splitDocumentOID !== oid) return;
         splitDocumentOID = null;
         splitDocumentUpdated = "";
         prefSet("splitDocumentOID", "");
