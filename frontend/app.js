@@ -2197,6 +2197,7 @@ function toggleSplitView() {
 
 function closeSplitView() {
     splitOpenRequestID++;
+    saveActiveSplitScroll();
     if (find.open && findPane === "split") closeFindBar();
     splitViewEnabled = false;
     const transferred = [];
