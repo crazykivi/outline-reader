@@ -1413,8 +1413,9 @@ function createEmptyTabID() {
 }
 
 function activateEmptyTab(oid) {
-    if (!isEmptyTab(oid) || !tabWorkspace.activateTab("main", oid)) return;
+    if (!isEmptyTab(oid) || tabWorkspace.ownerOf(oid) !== "main") return;
     saveActiveTabScroll();
+    if (!tabWorkspace.activateTab("main", oid)) return;
     openRequestID++;
     clearActiveDocument();
     saveOpenTabs();
