@@ -283,10 +283,10 @@ function bindUI() {
         }
 
         saveCollapsedCollections();
-        const sidebar = document.querySelector(".sidebar");
-        const scroll = sidebar.scrollTop;
+        const tree = $("docTree");
+        const scroll = tree.scrollTop;
         renderTree();
-        sidebar.scrollTop = scroll;
+        tree.scrollTop = scroll;
     });
     $("closeNotification").addEventListener("click", hideNotice);
     const toast = $("toast");
@@ -1190,10 +1190,10 @@ function renderTree() {
 function toggleNode(oid) {
     expanded.has(oid) ? expanded.delete(oid) : expanded.add(oid);
     saveExpanded();
-    const sidebar = document.querySelector(".sidebar");
-    const scroll = sidebar.scrollTop;
+    const tree = $("docTree");
+    const scroll = tree.scrollTop;
     renderTree();
-    sidebar.scrollTop = scroll;
+    tree.scrollTop = scroll;
 }
 
 function saveFavoritesCollapsed() {
@@ -1203,10 +1203,10 @@ function saveFavoritesCollapsed() {
 function toggleFavorites() {
     favoritesCollapsed = !favoritesCollapsed;
     saveFavoritesCollapsed();
-    const sidebar = document.querySelector(".sidebar");
-    const scroll = sidebar.scrollTop;
+    const tree = $("docTree");
+    const scroll = tree.scrollTop;
     renderTree();
-    sidebar.scrollTop = scroll;
+    tree.scrollTop = scroll;
 }
 
 function toggleCollection(collectionID) {
@@ -1214,10 +1214,10 @@ function toggleCollection(collectionID) {
         ? collapsedCollections.delete(collectionID)
         : collapsedCollections.add(collectionID);
     saveCollapsedCollections();
-    const sidebar = document.querySelector(".sidebar");
-    const scroll = sidebar.scrollTop;
+    const tree = $("docTree");
+    const scroll = tree.scrollTop;
     renderTree();
-    sidebar.scrollTop = scroll;
+    tree.scrollTop = scroll;
 }
 
 function renderNodes(nodes, depth) {
@@ -1272,17 +1272,13 @@ function markActive() {
     if (!row) row = document.querySelector(`.tree-row[data-oid="${esc}"]`);
     if (row) {
         row.classList.add("active");
-        const sidebar = document.querySelector(".sidebar");
-        const sidebarTop = document.querySelector(".sidebar-top");
-        const sidebarLower = document.querySelector(".sidebar-lower");
-        const sidebarRect = sidebar.getBoundingClientRect();
-        const topEdge = Math.max(sidebarRect.top, sidebarTop.getBoundingClientRect().bottom) + 8;
-        const bottomEdge = Math.min(sidebarRect.bottom, sidebarLower.getBoundingClientRect().top) - 8;
+        const tree = $("docTree");
+        const treeRect = tree.getBoundingClientRect();
         const rowRect = row.getBoundingClientRect();
-        if (rowRect.top < topEdge) {
-            sidebar.scrollBy({ top: rowRect.top - topEdge, behavior: "smooth" });
-        } else if (rowRect.bottom > bottomEdge) {
-            sidebar.scrollBy({ top: rowRect.bottom - bottomEdge, behavior: "smooth" });
+        if (rowRect.top < treeRect.top + 8) {
+            tree.scrollBy({ top: rowRect.top - treeRect.top - 8, behavior: "smooth" });
+        } else if (rowRect.bottom > treeRect.bottom - 8) {
+            tree.scrollBy({ top: rowRect.bottom - treeRect.bottom + 8, behavior: "smooth" });
         }
     }
 }
