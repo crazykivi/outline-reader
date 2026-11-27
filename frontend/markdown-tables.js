@@ -46,8 +46,9 @@
         return cells.length > 1 && cells.every((cell) => /^:?-{1,}:?$/.test(cell));
     }
 
-    function normalizeRow(cells, width, emptyMarkers) {
-        const result = cells.slice(0, width);
+    function normalizeRow(cells, width, emptyMarkers, alignLeft) {
+        const missing = Math.max(0, width - cells.length);
+        const result = alignLeft ? Array(missing).fill("").concat(cells.slice(0, width)) : cells.slice(0, width);
         while (result.length < width) result.push("");
         return result.map((cell) => emptyMarkers && cell === "*" ? "" : cell);
     }
@@ -77,6 +78,7 @@
 
             const header = splitRow(line);
             const delimiter = splitRow(lines[i + 1]);
+            const outlineTable = header.length > 1 && header.every((cell) => /^\*\*.+\*\*$/.test(cell));
             const rows = [];
             let width = Math.max(header.length, delimiter.length);
             let j = i + 2;
@@ -90,7 +92,7 @@
 
             const normalizedHeader = normalizeRow(header, width, false);
             const normalizedDelimiter = normalizeRow(delimiter, width, false).map((cell) => cell || "---");
-            const normalizedRows = rows.map((cells) => normalizeRow(cells, width, true));
+            const normalizedRows = rows.map((cells) => normalizeRow(cells, width, true, outlineTable));
             output.push("| " + normalizedHeader.join(" | ") + " |");
             output.push("| " + normalizedDelimiter.join(" | ") + " |");
             for (const cells of normalizedRows) output.push("| " + cells.join(" | ") + " |");
