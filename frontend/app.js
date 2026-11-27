@@ -530,9 +530,10 @@ function bindUI() {
             e.preventDefault(); $("searchInput").focus(); $("searchInput").select();
         }
         if ((e.ctrlKey || e.metaKey) && e.code === "KeyF") {
-            if ($("mainScreen").style.display !== "none" && $("docViewer").style.display !== "none") {
-                e.preventDefault(); openFindBar();
-            }
+            const hasDoc = activePane === "split" && splitViewEnabled
+                ? $("splitDocViewer").style.display !== "none"
+                : $("docViewer").style.display !== "none";
+            if ($("mainScreen").style.display !== "none" && hasDoc) { e.preventDefault(); openFindBar(); }
         }
         if (e.key === "F3" && find.open) {
             e.preventDefault();
@@ -851,8 +852,8 @@ function openMenu(anchor) {
         top = Math.max(8, r.top - mh - 8);
     }
     menu.style.top = top + "px";
-    menu.style.left = "auto";
-    menu.style.right = "20px";
+    menu.style.left = Math.max(8, Math.min(window.innerWidth - menu.offsetWidth - 8, r.right - menu.offsetWidth)) + "px";
+    menu.style.right = "auto";
 }
 
 function closeMenu(instant) {
@@ -2044,6 +2045,7 @@ async function activateSplitTab(id) {
     if (isEmptyTab(id)) {
         splitCurrentOID = null;
         splitDocumentOID = null;
+        splitDocumentUpdated = "";
         splitHistory = [];
         splitHistoryIndex = -1;
         $("splitWelcome").style.display = "flex";
@@ -2212,6 +2214,7 @@ function closeSplitView() {
 
 async function openSplitDocument(oid, query, source, targetTabID) {
     if (!oid) return;
+    if (splitActiveTabOID && splitActiveTabOID !== targetTabID) saveActiveSplitScroll();
     const requestID = ++splitOpenRequestID;
     activePane = "split";
     splitViewEnabled = true;
@@ -2242,6 +2245,7 @@ async function openSplitDocument(oid, query, source, targetTabID) {
             if (pos >= 0) splitTabs[pos] = nextID;
             else if (!splitTabs.includes(nextID)) splitTabs.push(nextID);
             if (splitPinnedTabs.includes(previousID)) splitPinnedTabs = splitPinnedTabs.map((id) => id === previousID ? nextID : id);
+            if (nextID !== previousID && !isEmptyTab(nextID)) splitTabScrollPositions.delete(nextID);
             splitActiveTabOID = nextID;
         }
         normalizeSplitTabOrder();
