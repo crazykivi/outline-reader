@@ -594,7 +594,10 @@ function bindUI() {
     const activateSplitPane = () => { activePane = "split"; updateHistoryButtons(); markActive(); };
     $("splitPane").addEventListener("pointerdown", activateSplitPane);
     $("splitPane").addEventListener("wheel", activateSplitPane, { passive: true });
-undefined
+    $("splitPane").addEventListener("focusin", activateSplitPane);
+    bindTabPaneDropZone(document.querySelector(".viewer"), "main");
+    bindTabPaneDropZone($("splitPane"), "split");
+    $("splitTabs").addEventListener("wheel", (event) => {
         const bar = $("splitTabs");
         if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) { bar.scrollLeft += event.deltaY; event.preventDefault(); }
     }, { passive: false });
@@ -1596,7 +1599,26 @@ function moveTabBetweenPanes(tabID, sourcePane, targetPane, targetTabID, after) 
     return true;
 }
 
-undefined
+function bindTabPaneDropZone(element, targetPane) {
+    if (!element || element.dataset.tabDropZone === targetPane) return;
+    element.dataset.tabDropZone = targetPane;
+    element.addEventListener("dragover", (event) => {
+        if (!draggedTabOID || !draggedTabPane || draggedTabPane === targetPane) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+    });
+    element.addEventListener("drop", (event) => handleTabBarDrop(event, targetPane));
+}
+
+function handleTabBarDrop(event, targetPane) {
+    if (!draggedTabOID || !draggedTabPane || draggedTabPane === targetPane) return;
+    event.preventDefault();
+    const tabID = draggedTabOID;
+    const sourcePane = draggedTabPane;
+    draggedTabOID = null;
+    draggedTabPane = null;
+    moveTabBetweenPanes(tabID, sourcePane, targetPane, null, false);
+}
 
 function renderTabs() {
     const bar = $("docTabs");
@@ -1673,7 +1695,17 @@ function renderTabs() {
             tab.classList.toggle("drop-after", !before);
         });
         tab.addEventListener("dragleave", () => tab.classList.remove("drop-before", "drop-after"));
-undefined
+        tab.addEventListener("drop", (event) => {
+            if (!draggedTabOID) return;
+            event.preventDefault();
+            const sourceOID = draggedTabOID;
+            const sourcePane = draggedTabPane;
+            const after = event.clientX >= tab.getBoundingClientRect().left + tab.offsetWidth / 2;
+            draggedTabOID = null;
+            draggedTabPane = null;
+            if (sourcePane === "split") moveTabBetweenPanes(sourceOID, "split", "main", tabID, after);
+            else if (pinnedTabs.includes(sourceOID) === isPinned) reorderTab(sourceOID, tabID, after);
+        });
         tab.addEventListener("dragend", () => {
             draggedTabOID = null;
             draggedTabPane = null;
@@ -1691,7 +1723,7 @@ undefined
     add.setAttribute("aria-label", "Открыть новую вкладку");
     add.textContent = "+";
     add.addEventListener("click", createNewTab);
-undefined
+    bar.appendChild(add);
 }
 
 function reorderTab(sourceOID, targetOID, after) {
@@ -2076,7 +2108,28 @@ function renderSplitTabs() {
             tab.classList.toggle("drop-after", !before);
         });
         tab.addEventListener("dragleave", () => tab.classList.remove("drop-before", "drop-after"));
-undefined
+        tab.addEventListener("drop", (event) => {
+            if (!draggedTabOID) return;
+            event.preventDefault();
+            const sourceOID = draggedTabOID;
+            const sourcePane = draggedTabPane;
+            const after = event.clientX >= tab.getBoundingClientRect().left + tab.offsetWidth / 2;
+            draggedTabOID = null;
+            draggedTabPane = null;
+            if (sourcePane === "main") {
+                moveTabBetweenPanes(sourceOID, "main", "split", tabID, after);
+                return;
+            }
+            if (splitPinnedTabs.includes(sourceOID) !== pinned) return;
+            const source = splitTabs.indexOf(sourceOID);
+            const target = splitTabs.indexOf(tabID);
+            if (source < 0 || target < 0) return;
+            const moved = splitTabs.splice(source, 1)[0];
+            const nextTarget = splitTabs.indexOf(tabID);
+            splitTabs.splice(nextTarget + (after ? 1 : 0), 0, moved);
+            saveSplitTabs();
+            renderSplitTabs();
+        });
         tab.addEventListener("dragend", () => {
             draggedTabOID = null;
             draggedTabPane = null;
@@ -2092,7 +2145,7 @@ undefined
     add.setAttribute("aria-label", "Открыть новую вкладку справа");
     add.textContent = "+";
     add.addEventListener("click", createSplitTab);
-undefined
+    bar.appendChild(add);
 }
 
 function splitTabContextMenu(tab) {
