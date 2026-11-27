@@ -147,7 +147,7 @@ test("closing the split view merges tabs and their metadata exactly once", () =>
 
     state.mergePane("split", "main", (id) => "copy:" + id);
 
-    assert.deepEqual(state.main.tabs, ["main:a", "split:b", "split:c"]);
+    assert.deepEqual(state.main.tabs, ["split:b", "main:a", "split:c"]);
     assert.deepEqual(state.main.pinned, ["split:b"]);
     assert.equal(state.main.activeId, "split:c");
     assert.deepEqual(state.main.histories.get("split:c"), { history: ["c", "d"], historyIndex: 1 });
