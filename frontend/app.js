@@ -1724,8 +1724,6 @@ function closeUnpinnedTabs() {
     renderTabs();
 }
 
-/* ---------- Избранное
-
 /* ---------- Избранное / недавние / палитра ---------- */
 
 async function refreshFavorites() {
