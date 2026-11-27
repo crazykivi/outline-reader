@@ -1613,8 +1613,7 @@ function renderTabs() {
             }
         });
         tab.addEventListener("dragstart", (event) => {
-            tabWorkspace.drag.tabId = tabID;
-            tabWorkspace.drag.pane = "main";
+            if (!tabWorkspace.beginDrag(tabID, "main")) { event.preventDefault(); return; }
             event.dataTransfer.effectAllowed = "move";
             event.dataTransfer.setData("text/plain", tabID);
             tab.classList.add("dragging");
@@ -1638,8 +1637,7 @@ function renderTabs() {
             if (mainTabs.pinned.includes(sourceOID) === isPinned) reorderTab(sourceOID, tabID, after);
         });
         tab.addEventListener("dragend", () => {
-            tabWorkspace.drag.tabId = null;
-            tabWorkspace.drag.pane = null;
+            tabWorkspace.endDrag(tabID, "main");
             bar.querySelectorAll(".doc-tab").forEach((element) => element.classList.remove("dragging", "drop-before", "drop-after"));
         });
         bar.appendChild(tab);
@@ -2011,8 +2009,7 @@ function renderSplitTabs() {
         }
         tab.addEventListener("click", () => activateSplitTab(tabID));
         tab.addEventListener("dragstart", (event) => {
-            tabWorkspace.drag.tabId = tabID;
-            tabWorkspace.drag.pane = "split";
+            if (!tabWorkspace.beginDrag(tabID, "split")) { event.preventDefault(); return; }
             event.dataTransfer.effectAllowed = "move";
             event.dataTransfer.setData("text/plain", tabID);
             tab.classList.add("dragging");
@@ -2032,21 +2029,13 @@ function renderSplitTabs() {
             event.preventDefault();
             const sourceOID = tabWorkspace.drag.tabId;
             if (splitWorkspace.pinned.includes(sourceOID) !== pinned) return;
-            const source = splitWorkspace.tabs.indexOf(sourceOID);
-            const target = splitWorkspace.tabs.indexOf(tabID);
-            if (source < 0 || target < 0) return;
             const after = event.clientX >= tab.getBoundingClientRect().left + tab.offsetWidth / 2;
-            const moved = splitWorkspace.tabs.splice(source, 1)[0];
-            const nextTarget = splitWorkspace.tabs.indexOf(tabID);
-            splitWorkspace.tabs.splice(nextTarget + (after ? 1 : 0), 0, moved);
-            tabWorkspace.drag.tabId = null;
-            tabWorkspace.drag.pane = null;
+            if (!tabWorkspace.reorder(sourceOID, "split", tabID, after)) return;
             saveSplitTabs();
             renderSplitTabs();
         });
         tab.addEventListener("dragend", () => {
-            tabWorkspace.drag.tabId = null;
-            tabWorkspace.drag.pane = null;
+            tabWorkspace.endDrag(tabID, "split");
             bar.querySelectorAll(".doc-tab").forEach((el) => el.classList.remove("dragging", "drop-before", "drop-after"));
         });
         bar.appendChild(tab);
