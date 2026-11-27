@@ -1439,6 +1439,7 @@ function normalizeTabOrder() {
 }
 
 function saveOpenTabs() {
+    tabWorkspace.assert();
     normalizeTabOrder();
     prefSet("openTabs", JSON.stringify(mainTabs.tabs));
     prefSet("pinnedTabs", JSON.stringify(mainTabs.pinned));
@@ -1942,6 +1943,7 @@ function normalizeSplitTabOrder() {
 }
 
 function saveSplitTabs() {
+    tabWorkspace.assert();
     normalizeSplitTabOrder();
     splitDocumentOID = getTabDocumentOID(splitWorkspace.activeId);
     prefSet("splitTabs", JSON.stringify(splitWorkspace.tabs));
