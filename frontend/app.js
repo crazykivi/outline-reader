@@ -34,7 +34,7 @@ let toastTimer = null, noticeTimer = null;
 let toastAction = null;
 let toastDuration = 4000;
 let updateCheckStarted = false;
-const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "sidebarAutoHide", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect", "openTabs", "pinnedTabs", "activeTabOID"];
+const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "sidebarAutoHide", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect", "openTabs", "pinnedTabs", "activeTabOID", "splitView", "splitDocumentOID"];
 let prefsReady = false;
 let prefsTimer = null;
 const prefsDirty = new Map();
@@ -83,6 +83,8 @@ async function loadPrefs() {
     if (!(scale >= 0.7 && scale <= 2.0)) scale = 1;
     applyFontScale(scale);
     tocOpen = prefGet("tocOpen") === "1";
+    splitViewEnabled = prefGet("splitView") === "1";
+    splitDocumentOID = prefGet("splitDocumentOID", "") || null;
     try { expanded = new Set(JSON.parse(prefGet("expanded", "[]"))); } catch (e) { expanded = new Set(); }
     try { collapsedCollections = new Set(JSON.parse(prefGet("collapsedCollections", "[]"))); } catch (e) { collapsedCollections = new Set(); }
     favoritesCollapsed = prefGet("favoritesCollapsed", "false") === "true";
@@ -129,6 +131,9 @@ let connHasKey = false;
 let lastActivitySent = 0;
 let settingsOpen = false;
 let captureBusy = false;
+let splitViewEnabled = prefGet("splitView") === "1";
+let splitDocumentOID = prefGet("splitDocumentOID", "") || null;
+let splitDocumentUpdated = "";
 
 const palette = { open: false, items: [], sel: 0, timer: null };
 
@@ -542,6 +547,21 @@ function bindUI() {
         if (currentDocUrl) window.runtime.BrowserOpenURL(currentDocUrl);
     });
     $("favBtn").addEventListener("click", toggleFav);
+    $("splitViewBtn").addEventListener("click", toggleSplitView);
+    $("splitClose").addEventListener("click", closeSplitView);
+    $("docTree").addEventListener("contextmenu", (event) => {
+        const row = event.target.closest(".tree-row[data-oid]");
+        if (!row || !$("docTree").contains(row)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const oid = row.dataset.oid;
+        showContextMenu(event, [{
+            label: "Открыть справа",
+            icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2" width="13" height="12" rx="1.5"/><path d="M8 2v12"/></svg>',
+            action: () => openSplitDocument(oid),
+        }]);
+    });
+    $("splitContent").addEventListener("click", (event) => onContentClick(event, "split"));
     $("menuZoomIn").addEventListener("click", () => { zoomIn(); });
     $("menuZoomOut").addEventListener("click", () => { zoomOut(); });
     $("zoomIndicator").addEventListener("click", zoomReset);
@@ -1033,6 +1053,8 @@ async function loadTree() {
         buildIndex();
         renderTabs();
         await refreshFavorites();
+        if (splitViewEnabled && splitDocumentOID) await restoreSplitDocument();
+        renderSplitView();
         if (currentOID) expandAncestors(currentOID);
         renderTree();
         if (!tabsRestored) {
@@ -1852,8 +1874,8 @@ function parseMarkdownBlock(md) {
     return marked.parse(normalizeMarkdownTables(md));
 }
 
-function renderMarkdown(md) {
-    const el = $("docContent");
+function renderMarkdown(md, target) {
+    const el = target || $("docContent");
     el.innerHTML = DOMPurify.sanitize(transformNotices(md, 0), {
         ADD_TAGS: ["input"],
         ADD_ATTR: ["type", "checked", "disabled"],
@@ -2003,7 +2025,7 @@ function applyTocOpen(v) {
     $("docViewer").classList.toggle("toc-open", show);
 }
 
-async function onContentClick(e) {
+async function onContentClick(e, pane) {
     const code = e.target.closest("code");
     if (code && !code.closest("pre")) {
         const text = code.textContent;
@@ -2041,7 +2063,8 @@ async function onContentClick(e) {
             try {
                 const d = await go().GetDocumentByURLID(candidate);
                 if (d && d.OutlineID) {
-                    openDocument(d.OutlineID, undefined, "navigate");
+                    if (pane === "split") await openSplitDocument(d.OutlineID);
+                    else openDocument(d.OutlineID, undefined, "navigate");
                     found = true;
                     break;
                 }
