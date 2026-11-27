@@ -134,3 +134,43 @@ test("opening the same document in the other pane allocates a different tab ID",
     assert.equal(state.ownerOf("duplicate:split:doc:a"), "split");
     assert.equal(state.assert(), true);
 });
+
+test("closing the split view merges tabs and their metadata exactly once", () => {
+    const state = workspace();
+    state.main.tabs = ["main:a"];
+    state.main.activeId = "main:a";
+    state.split.tabs = ["split:b", "split:c"];
+    state.split.pinned = ["split:b"];
+    state.split.activeId = "split:c";
+    state.split.histories.set("split:c", { history: ["c", "d"], historyIndex: 1 });
+    state.split.scrollPositions.set("split:c", 88);
+
+    state.mergePane("split", "main", (id) => "copy:" + id);
+
+    assert.deepEqual(state.main.tabs, ["main:a", "split:b", "split:c"]);
+    assert.deepEqual(state.main.pinned, ["split:b"]);
+    assert.equal(state.main.activeId, "split:c");
+    assert.deepEqual(state.main.histories.get("split:c"), { history: ["c", "d"], historyIndex: 1 });
+    assert.equal(state.main.scrollPositions.get("split:c"), 88);
+    assert.deepEqual(state.split.tabs, []);
+    assert.equal(state.split.activeId, null);
+    assert.equal(state.assert(), true);
+});
+
+test("closing unpinned tabs removes their metadata and selects a pinned tab", () => {
+    const state = workspace();
+    state.main.tabs = ["pin:a", "doc:b"];
+    state.main.pinned = ["pin:a"];
+    state.main.activeId = "doc:b";
+    state.main.histories.set("doc:b", { history: ["b"], historyIndex: 0 });
+    state.main.scrollPositions.set("doc:b", 42);
+
+    const result = state.closeUnpinned("main");
+
+    assert.equal(result.activeWasClosed, true);
+    assert.deepEqual(state.main.tabs, ["pin:a"]);
+    assert.equal(state.main.activeId, "pin:a");
+    assert.equal(state.main.histories.has("doc:b"), false);
+    assert.equal(state.main.scrollPositions.has("doc:b"), false);
+    assert.equal(state.assert(), true);
+});
