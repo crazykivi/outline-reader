@@ -34,7 +34,7 @@ let toastTimer = null, noticeTimer = null;
 let toastAction = null;
 let toastDuration = 4000;
 let updateCheckStarted = false;
-const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect", "openTabs", "pinnedTabs", "activeTabOID"];
+const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "sidebarAutoHide", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect", "openTabs", "pinnedTabs", "activeTabOID"];
 let prefsReady = false;
 let prefsTimer = null;
 const prefsDirty = new Map();
@@ -283,10 +283,10 @@ function bindUI() {
         }
 
         saveCollapsedCollections();
-        const sidebar = document.querySelector(".sidebar");
-        const scroll = sidebar.scrollTop;
+        const tree = $("docTree");
+        const scroll = tree.scrollTop;
         renderTree();
-        sidebar.scrollTop = scroll;
+        tree.scrollTop = scroll;
     });
     $("closeNotification").addEventListener("click", hideNotice);
     const toast = $("toast");
@@ -1190,10 +1190,10 @@ function renderTree() {
 function toggleNode(oid) {
     expanded.has(oid) ? expanded.delete(oid) : expanded.add(oid);
     saveExpanded();
-    const sidebar = document.querySelector(".sidebar");
-    const scroll = sidebar.scrollTop;
+    const tree = $("docTree");
+    const scroll = tree.scrollTop;
     renderTree();
-    sidebar.scrollTop = scroll;
+    tree.scrollTop = scroll;
 }
 
 function saveFavoritesCollapsed() {
@@ -1203,10 +1203,10 @@ function saveFavoritesCollapsed() {
 function toggleFavorites() {
     favoritesCollapsed = !favoritesCollapsed;
     saveFavoritesCollapsed();
-    const sidebar = document.querySelector(".sidebar");
-    const scroll = sidebar.scrollTop;
+    const tree = $("docTree");
+    const scroll = tree.scrollTop;
     renderTree();
-    sidebar.scrollTop = scroll;
+    tree.scrollTop = scroll;
 }
 
 function toggleCollection(collectionID) {
@@ -1214,10 +1214,10 @@ function toggleCollection(collectionID) {
         ? collapsedCollections.delete(collectionID)
         : collapsedCollections.add(collectionID);
     saveCollapsedCollections();
-    const sidebar = document.querySelector(".sidebar");
-    const scroll = sidebar.scrollTop;
+    const tree = $("docTree");
+    const scroll = tree.scrollTop;
     renderTree();
-    sidebar.scrollTop = scroll;
+    tree.scrollTop = scroll;
 }
 
 function renderNodes(nodes, depth) {
@@ -1272,17 +1272,13 @@ function markActive() {
     if (!row) row = document.querySelector(`.tree-row[data-oid="${esc}"]`);
     if (row) {
         row.classList.add("active");
-        const sidebar = document.querySelector(".sidebar");
-        const sidebarTop = document.querySelector(".sidebar-top");
-        const sidebarLower = document.querySelector(".sidebar-lower");
-        const sidebarRect = sidebar.getBoundingClientRect();
-        const topEdge = Math.max(sidebarRect.top, sidebarTop.getBoundingClientRect().bottom) + 8;
-        const bottomEdge = Math.min(sidebarRect.bottom, sidebarLower.getBoundingClientRect().top) - 8;
+        const tree = $("docTree");
+        const treeRect = tree.getBoundingClientRect();
         const rowRect = row.getBoundingClientRect();
-        if (rowRect.top < topEdge) {
-            sidebar.scrollBy({ top: rowRect.top - topEdge, behavior: "smooth" });
-        } else if (rowRect.bottom > bottomEdge) {
-            sidebar.scrollBy({ top: rowRect.bottom - bottomEdge, behavior: "smooth" });
+        if (rowRect.top < treeRect.top + 8) {
+            tree.scrollBy({ top: rowRect.top - treeRect.top - 8, behavior: "smooth" });
+        } else if (rowRect.bottom > treeRect.bottom - 8) {
+            tree.scrollBy({ top: rowRect.bottom - treeRect.bottom + 8, behavior: "smooth" });
         }
     }
 }
@@ -2473,11 +2469,52 @@ function setSideWidth(w) {
 }
 function initResizer() {
     const sidebar = document.querySelector(".sidebar");
+    const content = document.querySelector(".content");
+    const edge = document.createElement("div");
+    edge.className = "sidebar-edge-trigger";
+    edge.setAttribute("aria-hidden", "true");
+    content.prepend(edge);
     const saved = parseInt(prefGet("sideWidth", "300"), 10);
     if (saved >= 220 && saved <= 480) sidebar.style.width = saved + "px";
     setSideWidth(parseInt(sidebar.style.width, 10) || 300);
+
     let dragging = false;
+    let hideTimer = null;
+    const autoHide = prefGet("sidebarAutoHide", "0") === "1";
+    const setVisible = (visible) => content.classList.toggle("sidebar-visible", visible);
+    const scheduleHide = () => {
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(() => setVisible(false), 450);
+    };
+    const showSidebar = () => {
+        clearTimeout(hideTimer);
+        setVisible(true);
+    };
+    const setAutoHide = (enabled) => {
+        clearTimeout(hideTimer);
+        content.classList.toggle("sidebar-auto-hide", enabled);
+        const button = $("sidebarAutoHideBtn");
+        button.setAttribute("aria-pressed", String(enabled));
+        button.setAttribute("aria-label", enabled ? "Закрепить боковую панель" : "Скрывать боковую панель");
+        button.title = enabled ? "Закрепить боковую панель" : "Автоматически скрывать боковую панель";
+        prefSet("sidebarAutoHide", enabled ? "1" : "0");
+        setVisible(!enabled);
+    };
+    setAutoHide(autoHide);
+    $("sidebarAutoHideBtn").addEventListener("click", () => {
+        setAutoHide(!content.classList.contains("sidebar-auto-hide"));
+    });
+    sidebar.addEventListener("mouseenter", showSidebar);
+    sidebar.addEventListener("mouseleave", scheduleHide);
+    edge.addEventListener("mouseenter", showSidebar);
+    edge.addEventListener("mouseleave", scheduleHide);
+    sidebar.addEventListener("focusin", showSidebar);
+    sidebar.addEventListener("focusout", (event) => {
+        if (!sidebar.contains(event.relatedTarget)) scheduleHide();
+    });
+
     $("sidebarResizer").addEventListener("mousedown", (e) => {
+        if (content.classList.contains("sidebar-auto-hide")) return;
         closeSideMenu();
         dragging = true;
         document.body.classList.add("resizing");

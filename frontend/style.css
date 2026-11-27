@@ -116,20 +116,37 @@ body.resizing { user-select: none; cursor: col-resize; }
 .spin svg { animation: rot 1s linear infinite; }
 @keyframes rot { to { transform: rotate(360deg); } }
 
-.content { flex: 1; display: flex; overflow: hidden; }
+.content { position: relative; flex: 1; display: flex; overflow: hidden; }
 .sidebar {
-    width: 300px; background: var(--panel); border-right: 1px solid var(--border);
-    overflow-y: auto; flex-shrink: 0; padding: 0; scrollbar-gutter: stable both-edges;
+    width: 300px; min-height: 0; display: flex; flex-direction: column;
+    background: var(--panel); border-right: 1px solid var(--border);
+    overflow: hidden; flex-shrink: 0; padding: 0;
 }
 .sidebar-resizer { width: 5px; flex: none; cursor: col-resize; margin-left: -5px; z-index: 5; }
 .sidebar-resizer:hover, body.resizing .sidebar-resizer { background: var(--accent-soft); }
 .sidebar-top {
     position: sticky; top: 0; background: var(--panel); z-index: 2;
     display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 10px 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px;
+    padding: 10px 10px 6px; border-bottom: 1px solid var(--border);
 }
-.sidebar-lower {
-    position: fixed; left: 0; bottom: 0; height: 20px; width: var(--side-w);
+.sidebar-top-actions { display: flex; align-items: center; gap: 2px; }
+.sidebar-toggle-icon { display: block; transition: transform .2s ease; }
+.sidebar-auto-hide .sidebar-toggle-icon { transform: scaleX(-1); }
+.sidebar-auto-hide .sidebar {
+    position: absolute; inset: 0 auto 0 0; z-index: 30;
+    width: var(--side-w); transform: translateX(-100%);
+    transition: transform .28s cubic-bezier(.22,.75,.25,1);
+    box-shadow: 8px 0 24px rgba(0,0,0,.16);
+}
+.sidebar-auto-hide.sidebar-visible .sidebar { transform: translateX(0); }
+.sidebar-auto-hide .sidebar-resizer { display: none; }
+.sidebar-edge-trigger {
+    display: none; position: absolute; inset: 0 auto 0 0; z-index: 29;
+    width: 12px; cursor: pointer;
+}
+.sidebar-auto-hide .sidebar-edge-trigger { display: block; }
+@media (prefers-reduced-motion: reduce) {
+    .sidebar-auto-hide .sidebar, .sidebar-toggle-icon { transition: none; }
 }
 .doc-count { font-size: 11.5px; color: var(--muted); }
 .btn-mini {
@@ -585,14 +602,26 @@ body.maximised .ic-max { display: none; }
 body.maximised .ic-restore { display: block; }
 .veiwer-div {position: absolute; right: 17px; top: 38px; z-index: 1;}
 
+.doc-tree-container {
+    position: relative; flex: 1; min-height: 0; overflow: hidden;
+}
+.doc-tree-toolbar {
+    position: absolute; top: -5px; right: 25px; z-index: 4;
+    display: flex; justify-content: flex-end; padding: 2px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px; pointer-events: none;
+}
+.doc-tree-toolbar .tree-action { pointer-events: auto; }
+.doc-tree {
+    width: 100%; height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    padding: 0 8px 8px; scrollbar-gutter: stable both-edges;
+}
 .sidebar-lower {
-    position: fixed; left: 0; bottom: 0; z-index: 6;
-    width: var(--side-w); height: 48px;
+    position: relative; left: auto; bottom: auto; z-index: 6;
+    flex: none; box-sizing: border-box; width: 100%; height: 48px;
     display: flex; align-items: center; gap: 4px;
     padding: 6px 8px;
     background: var(--panel); border-top: 1px solid var(--border);
 }
-.doc-tree { padding-bottom: 56px; }
 .side-account {
     flex: 1; min-width: 0; height: 36px;
     display: flex; align-items: center; gap: 8px;
