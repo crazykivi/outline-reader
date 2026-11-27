@@ -1589,6 +1589,9 @@ function moveTabBetweenPanes(tabID, sourcePane, targetPane, targetTabID, after) 
             void openSplitDocument(getTabDocumentOID(splitActiveTabOID), undefined, "tab", splitActiveTabOID);
         }
     }
+    activePane = targetPane;
+    updateHistoryButtons();
+    markActive();
     return true;
 }
 
