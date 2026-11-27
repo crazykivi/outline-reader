@@ -110,3 +110,27 @@ test("a drag session can be consumed only once", () => {
     assert.deepEqual(state.consumeDrag("split"), { tabId: "doc:a", pane: "main", token: 1 });
     assert.equal(state.consumeDrag("split"), null);
 });
+
+test("opening the same document in the other pane allocates a different tab ID", () => {
+    const state = workspace();
+    state.main.tabs = ["doc:a"];
+    state.main.activeId = "doc:a";
+    state.split.tabs = ["empty:split"];
+    state.split.activeId = "empty:split";
+
+    const selected = state.selectDocumentTab({
+        paneName: "split",
+        documentOID: "doc:a",
+        source: "tree",
+        getDocumentOID: documentOID,
+        isEmptyTab: isEmpty,
+        createDuplicate: (oid) => "duplicate:split:" + oid,
+    });
+
+    assert.equal(selected.tabId, "duplicate:split:doc:a");
+    assert.deepEqual(state.main.tabs, ["doc:a"]);
+    assert.deepEqual(state.split.tabs, ["duplicate:split:doc:a"]);
+    assert.equal(state.ownerOf("doc:a"), "main");
+    assert.equal(state.ownerOf("duplicate:split:doc:a"), "split");
+    assert.equal(state.assert(), true);
+});
