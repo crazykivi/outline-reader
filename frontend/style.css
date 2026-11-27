@@ -195,7 +195,8 @@ body.resizing { user-select: none; cursor: col-resize; }
 .split-controls { flex: none; display: flex; align-items: center; gap: 1px; padding: 0 5px; border-left: 1px solid var(--border); }
 .split-controls .btn-icon { width: 28px; height: 28px; }
 .split-pane .welcome { flex: 1; min-height: 0; }
-.split-doc-viewer { flex: 1; min-height: 0; max-width: none; margin: 0; padding: 24px 28px 64px; overflow: auto; scrollbar-gutter: stable both-edges; }
+.split-doc-viewer { flex: 1; min-height: 0; max-width: 780px; margin: 0 auto; padding: 24px 28px 64px; overflow: auto; scrollbar-gutter: stable both-edges; }
+.split-doc-viewer.full-width { max-width: none; margin: 0; padding-left: 10px; padding-right: 10px; }
 .split-doc-viewer .doc-header { gap: 10px; }
 .split-doc-viewer .doc-header h2 { font-size: 22px; overflow-wrap: anywhere; }
 .split-doc-viewer .doc-header-main { min-width: 0; }
