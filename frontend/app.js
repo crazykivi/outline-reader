@@ -35,7 +35,7 @@ let toastTimer = null, noticeTimer = null;
 let toastAction = null;
 let toastDuration = 4000;
 let updateCheckStarted = false;
-const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "sidebarAutoHide", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect", "openTabs", "pinnedTabs", "activeTabOID", "splitView", "splitDocumentOID", "splitTabs", "splitPinnedTabs", "splitActiveTabOID", "splitWidth"];
+const PREF_KEYS = ["theme", "fullWidth", "splitFullWidth", "fontScale", "sideWidth", "sidebarAutoHide", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect", "openTabs", "pinnedTabs", "activeTabOID", "splitView", "splitDocumentOID", "splitTabs", "splitPinnedTabs", "splitActiveTabOID", "splitWidth"];
 let prefsReady = false;
 let prefsTimer = null;
 const prefsDirty = new Map();
@@ -80,6 +80,7 @@ async function loadPrefs() {
     });
     applyTheme(prefGet("theme", "dark"));
     applyFullWidth(prefGet("fullWidth") === "1");
+    applySplitFullWidth(prefGet("splitFullWidth") === "1");
     let scale = parseFloat(prefGet("fontScale", "1"));
     if (!(scale >= 0.7 && scale <= 2.0)) scale = 1;
     applyFontScale(scale);
@@ -117,6 +118,11 @@ async function loadPrefs() {
         setSideWidth(w);
     }
     prefsReady = true;
+    if (typeof remote.splitFullWidth !== "string") {
+        const savedSplitFullWidth = localStorage.getItem("or.splitFullWidth");
+        prefsDirty.set("splitFullWidth", savedSplitFullWidth !== null ? savedSplitFullWidth : (splitFullWidth ? "1" : "0"));
+        await flushPrefs();
+    }
     if (Object.keys(remote).length === 0) {
         PREF_KEYS.forEach((k) => {
             const v = localStorage.getItem("or." + k);
@@ -127,6 +133,7 @@ async function loadPrefs() {
 }
 
 let fullWidth = prefGet("fullWidth") === "1";
+let splitFullWidth = prefGet("splitFullWidth") === "1";
 let tocOpen = prefGet("tocOpen") === "1";
 let fontScale = parseFloat(prefGet("fontScale", "1"));
 let lastTreeClick = { oid: null, time: 0 };
@@ -369,7 +376,7 @@ function bindUI() {
         closeMenu();
         openFindBar();
     });
-    $("menuFullWidth").addEventListener("click", () => { applyFullWidth(!fullWidth); });
+    $("menuFullWidth").addEventListener("click", () => { applyPaneFullWidth(!getActivePaneFullWidth()); });
     $("menuCapture").addEventListener("click", toggleCapture);
     $("menuLock").addEventListener("click", () => { closeSideMenu(); lockNow(); });
     $("menuReset").addEventListener("click", () => { closeSideMenu(); openResetModal(); });
@@ -422,7 +429,7 @@ function bindUI() {
         updateSettingsThemeToggle();
     });
     $("settingsFullWidth").addEventListener("click", () => {
-        applyFullWidth(!fullWidth);
+        applyPaneFullWidth(!getActivePaneFullWidth());
         updateSettingsFullWidth();
     });
     $("settingsZoomIn").addEventListener("click", () => { zoomIn(); updateSettingsZoom(); });
@@ -953,7 +960,7 @@ function bindContextMenu(target, getItems) {
 
 function openSideMenu() {
     closeMenu();
-    $("fwSwitch").classList.toggle("on", fullWidth);
+    $("fwSwitch").classList.toggle("on", getActivePaneFullWidth());
     $("capSwitch").classList.toggle("on", captureProtect);
     uiShow($("sideMenu"), "block");
     $("sideAccountBtn").setAttribute("aria-expanded", "true");
@@ -1029,7 +1036,7 @@ async function doReset() {
     try {
         clearTimeout(searchTimer);
         await go().ResetApp();
-        ["or.expanded", "or.theme", "or.sideWidth", "or.fullWidth", "or.fontScale", "or.tocOpen", "or.captureProtect", "or.openTabs", "or.pinnedTabs", "or.activeTabOID", "or.splitView", "or.splitDocumentOID", "or.splitTabs", "or.splitPinnedTabs", "or.splitActiveTabOID", "or.splitWidth"]
+        ["or.expanded", "or.theme", "or.sideWidth", "or.fullWidth", "or.splitFullWidth", "or.fontScale", "or.tocOpen", "or.captureProtect", "or.openTabs", "or.pinnedTabs", "or.activeTabOID", "or.splitView", "or.splitDocumentOID", "or.splitTabs", "or.splitPinnedTabs", "or.splitActiveTabOID", "or.splitWidth"]
             .forEach((k) => localStorage.removeItem(k));
         window.location.reload();
     } catch (err) {
@@ -3200,11 +3207,27 @@ function applyTheme(t) {
     btn.title = t === "dark" ? "Светлая тема" : "Тёмная тема";
 }
 
+function getActivePaneFullWidth() {
+    return activePane === "split" && splitViewEnabled ? splitFullWidth : fullWidth;
+}
+
+function applyPaneFullWidth(v) {
+    if (activePane === "split" && splitViewEnabled) applySplitFullWidth(v);
+    else applyFullWidth(v);
+}
+
 function applyFullWidth(v) {
-    fullWidth = v;
-    prefSet("fullWidth", v ? "1" : "0");
-    $("docViewer").classList.toggle("full-width", v);
-    $("fwSwitch").classList.toggle("on", v);
+    fullWidth = !!v;
+    prefSet("fullWidth", fullWidth ? "1" : "0");
+    $("docViewer").classList.toggle("full-width", fullWidth);
+    if (activePane !== "split" || !splitViewEnabled) $("fwSwitch").classList.toggle("on", fullWidth);
+}
+
+function applySplitFullWidth(v) {
+    splitFullWidth = !!v;
+    prefSet("splitFullWidth", splitFullWidth ? "1" : "0");
+    $("splitDocViewer").classList.toggle("full-width", splitFullWidth);
+    if (activePane === "split" && splitViewEnabled) $("fwSwitch").classList.toggle("on", splitFullWidth);
 }
 
 function applyFontScale(v) {
@@ -3383,7 +3406,7 @@ function updateSettingsThemeToggle() {
 }
 
 function updateSettingsFullWidth() {
-    $("settingsFullWidth").classList.toggle("active", fullWidth);
+    $("settingsFullWidth").classList.toggle("active", getActivePaneFullWidth());
 }
 
 function updateSettingsZoom() {
