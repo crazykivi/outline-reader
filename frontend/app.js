@@ -1880,6 +1880,7 @@ async function restoreSplitDocument() {
         if (requestID !== splitOpenRequestID || splitDocumentOID !== oid) return;
         showSplitDoc(doc);
     } catch (err) {
+        if (requestID !== splitOpenRequestID || splitDocumentOID !== oid) return;
         splitDocumentOID = null;
         splitDocumentUpdated = "";
         prefSet("splitDocumentOID", "");
