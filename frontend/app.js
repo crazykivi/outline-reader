@@ -585,7 +585,6 @@ function bindUI() {
     $("favBtn").addEventListener("click", toggleFav);
     $("splitViewBtn").addEventListener("click", toggleSplitView);
     $("splitClose").addEventListener("click", closeSplitView);
-    $("splitViewCloseBtn").addEventListener("click", closeSplitView);
     $("splitBackBtn").addEventListener("click", goBackSplit);
     $("splitForwardBtn").addEventListener("click", goForwardSplit);
     $("splitPane").addEventListener("pointerdown", () => { activePane = "split"; updateHistoryButtons(); markActive(); });
