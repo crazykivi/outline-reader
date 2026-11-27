@@ -1461,8 +1461,7 @@ async function restoreOpenTabs() {
         if (!documentOID) continue;
         await openDocument(documentOID, undefined, "tab", target);
         if (currentOID === documentOID && mainTabs.activeId === target) return;
-        mainTabs.tabs = mainTabs.tabs.filter((id) => id !== target);
-        mainTabs.pinned = mainTabs.pinned.filter((id) => id !== target);
+        tabWorkspace.closeTab("main", target);
     }
     mainTabs.activeId = null;
     saveOpenTabs();
@@ -2141,10 +2140,13 @@ function closeUnpinnedSplitTabs() {
 
 async function restoreSplitTabs() {
     if (!splitWorkspace.tabs.length) {
-        if (splitDocumentOID) splitWorkspace.tabs = [splitDocumentOID];
-        else splitWorkspace.tabs = [createSplitEmptyTabID()];
+        const id = splitDocumentOID || createSplitEmptyTabID();
+        tabWorkspace.createTab("split", id);
     }
-    if (!splitWorkspace.activeId || !splitWorkspace.tabs.includes(splitWorkspace.activeId)) splitWorkspace.activeId = splitWorkspace.tabs[splitWorkspace.tabs.length - 1];
+    if (!splitWorkspace.activeId || !splitWorkspace.tabs.includes(splitWorkspace.activeId)) {
+        const id = splitWorkspace.tabs[splitWorkspace.tabs.length - 1];
+        if (id) tabWorkspace.activateTab("split", id);
+    }
     renderSplitTabs();
     if (isEmptyTab(splitWorkspace.activeId)) {
         splitCurrentOID = null;
