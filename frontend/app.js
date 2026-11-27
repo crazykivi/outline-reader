@@ -1519,6 +1519,15 @@ function moveTabBetweenPanes(tabID, sourcePane, targetPane, targetTabID, after) 
     scrollMap.delete(tabID);
     if (wasPinned) sourcePinned.splice(sourcePinned.indexOf(tabID), 1);
 
+    const emptyTargetTabID = targetTabs.length === 1 && isEmptyTab(targetTabs[0]) && !targetPinned.includes(targetTabs[0])
+        ? targetTabs[0]
+        : null;
+    if (emptyTargetTabID) {
+        targetTabs.splice(0, 1);
+        targetHistoryMap.delete(emptyTargetTabID);
+        targetScrollMap.delete(emptyTargetTabID);
+    }
+
     let movedID = tabID;
     if (targetTabs.includes(movedID)) {
         const oid = getTabDocumentOID(movedID);
