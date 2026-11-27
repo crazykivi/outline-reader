@@ -89,7 +89,7 @@
             }
 
             const normalizedHeader = normalizeRow(header, width, false);
-            const normalizedDelimiter = normalizeRow(delimiter, width, false);
+            const normalizedDelimiter = normalizeRow(delimiter, width, false).map((cell) => cell || "---");
             const normalizedRows = rows.map((cells) => normalizeRow(cells, width, true));
             output.push("| " + normalizedHeader.join(" | ") + " |");
             output.push("| " + normalizedDelimiter.join(" | ") + " |");
