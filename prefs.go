@@ -19,6 +19,10 @@ var prefKeys = map[string]bool{
 	"captureProtect":       true,
 	"splitView":            true,
 	"splitDocumentOID":     true,
+	"splitTabs":            true,
+	"splitPinnedTabs":      true,
+	"splitActiveTabOID":    true,
+	"splitWidth":           true,
 }
 
 func (a *App) GetPrefs() (map[string]string, error) {
