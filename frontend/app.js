@@ -1908,8 +1908,6 @@ async function openDocument(oid, query, source, targetTabID) {
     }
 }
 
-function showDoc
-
 function showDoc(doc, base) {
     $("welcomeScreen").style.display = "none";
     $("docViewer").style.display = "block";
@@ -2301,8 +2299,6 @@ async function openSplitDocument(oid, query, source, targetTabID) {
         if (requestID === splitOpenRequestID) showToast("Ошибка", "Не удалось открыть документ справа: " + err, true);
     }
 }
-
-function showSplitDoc
 
 function showSplitDoc(doc) {
     splitCurrentOID = doc.OutlineID;
