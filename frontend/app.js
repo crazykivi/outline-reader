@@ -2393,10 +2393,10 @@ function startSplitResize(event) {
     const up = () => {
         document.removeEventListener("mousemove", move);
         document.removeEventListener("mouseup", up);
-        document.body.classList.remove("resizing");
+        document.body.classList.remove("resizing", "resizing-split");
         prefSet("splitWidth", splitWidth.toFixed(2));
     };
-    document.body.classList.add("resizing");
+    document.body.classList.add("resizing", "resizing-split");
     document.addEventListener("mousemove", move);
     document.addEventListener("mouseup", up);
 }
@@ -3146,7 +3146,7 @@ function initResizer() {
         if (content.classList.contains("sidebar-auto-hide")) return;
         closeSideMenu();
         dragging = true;
-        document.body.classList.add("resizing");
+        document.body.classList.add("resizing", "resizing-sidebar");
         e.preventDefault();
     });
     document.addEventListener("mousemove", (e) => {
@@ -3158,7 +3158,7 @@ function initResizer() {
     document.addEventListener("mouseup", () => {
         if (!dragging) return;
         dragging = false;
-        document.body.classList.remove("resizing");
+        document.body.classList.remove("resizing", "resizing-sidebar");
         const w = parseInt(sidebar.style.width, 10) || 300;
         prefSet("sideWidth", w);
         setSideWidth(w);
