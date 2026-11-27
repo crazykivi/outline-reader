@@ -2232,8 +2232,9 @@ async function openSplitDocument(oid, query, source, targetTabID) {
             splitActiveTabOID = targetTabID;
         } else {
             let nextID = oid;
+            const previousDocumentOID = getTabDocumentOID(previousID);
             if (previousID && isEmptyTab(previousID)) nextID = previousID;
-            else if (previousID && getTabDocumentOID(previousID) === oid) nextID = previousID;
+            else if (previousID && previousDocumentOID === oid) nextID = previousID;
             else if (splitTabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid)) nextID = createSplitDuplicateTabID(oid);
             if (previousID && previousID !== nextID) {
                 const saved = splitTabHistories.get(previousID) || { history: splitHistory.slice(), historyIndex: splitHistoryIndex };
@@ -2245,7 +2246,7 @@ async function openSplitDocument(oid, query, source, targetTabID) {
             if (pos >= 0) splitTabs[pos] = nextID;
             else if (!splitTabs.includes(nextID)) splitTabs.push(nextID);
             if (splitPinnedTabs.includes(previousID)) splitPinnedTabs = splitPinnedTabs.map((id) => id === previousID ? nextID : id);
-            if (nextID !== previousID && !isEmptyTab(nextID)) splitTabScrollPositions.delete(nextID);
+            if (source !== "tab" && previousDocumentOID !== oid) splitTabScrollPositions.delete(nextID);
             splitActiveTabOID = nextID;
         }
         normalizeSplitTabOrder();
