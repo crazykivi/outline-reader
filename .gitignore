@@ -1,0 +1,47 @@
+# Build outputs
+build/bin/
+build/windows/
+*.exe
+
+# SQLite runtime
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# Go
+*.test
+*.out
+coverage.html
+
+# Wails internals
+wailsjs/go/main/App.d.ts
+wailsjs/go/main/App.js
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*~
+*.sublime-project
+*.sublime-workspace
+
+# PowerShell artefact
+-Force/
+
+# Node (если появится npm)
+frontend/node_modules/
+frontend/dist/
+frontend/package-lock.json
+
+# Logs
+*.log
+
+# Portable Data
+/data/
