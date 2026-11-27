@@ -581,7 +581,6 @@ function bindUI() {
         if (currentDocUrl) window.runtime.BrowserOpenURL(currentDocUrl);
     });
     $("favBtn").addEventListener("click", toggleFav);
-    $("splitViewBtn").addEventListener("click", toggleSplitView);
     $("splitClose").addEventListener("click", closeSplitView);
     const activateSplitPane = () => { activePane = "split"; updateHistoryButtons(); markActive(); };
     $("splitPane").addEventListener("pointerdown", activateSplitPane);
@@ -1655,6 +1654,17 @@ function renderTabs() {
         bar.appendChild(tab);
         if (tabID === mainTabs.activeId) tab.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
+
+    const splitButton = document.createElement("button");
+    splitButton.type = "button";
+    splitButton.id = "splitViewBtn";
+    splitButton.className = "doc-tab-add split-view-tab-btn";
+    splitButton.title = splitViewEnabled ? "Скрыть разделение" : "Открыть вторую панель";
+    splitButton.setAttribute("aria-label", splitButton.title);
+    splitButton.setAttribute("aria-pressed", String(splitViewEnabled));
+    splitButton.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>';
+    splitButton.addEventListener("click", toggleSplitView);
+    bar.appendChild(splitButton);
 
     const add = document.createElement("button");
     add.type = "button";
