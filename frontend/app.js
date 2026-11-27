@@ -1413,26 +1413,28 @@ function createEmptyTabID() {
 }
 
 function activateEmptyTab(oid) {
-    if (!isEmptyTab(oid) || !mainTabs.tabs.includes(oid)) return;
+    if (!isEmptyTab(oid) || !tabWorkspace.activateTab("main", oid)) return;
     saveActiveTabScroll();
     openRequestID++;
-    mainTabs.activeId = oid;
     clearActiveDocument();
     saveOpenTabs();
     renderTabs();
 }
 
+function createNewTab
+
 function createNewTab() {
     saveActiveTabScroll();
     const oid = createEmptyTabID();
-    mainTabs.tabs.push(oid);
-    mainTabs.activeId = oid;
+    if (!tabWorkspace.createTab("main", oid)) return;
     clearActiveDocument();
     saveOpenTabs();
     renderTabs();
     const plus = $("newTabBtn");
     if (plus) plus.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
+
+function normalizeTabOrder
 
 function normalizeTabOrder() {
     tabWorkspace.normalizeOrder(mainTabs);
@@ -1663,13 +1665,12 @@ function reorderTab(sourceOID, targetOID, after) {
 }
 
 function togglePinnedTab(oid) {
-    if (!mainTabs.tabs.includes(oid)) return;
-    if (mainTabs.pinned.includes(oid)) mainTabs.pinned = mainTabs.pinned.filter((id) => id !== oid);
-    else mainTabs.pinned.push(oid);
-    normalizeTabOrder();
+    if (!tabWorkspace.togglePinned("main", oid)) return;
     saveOpenTabs();
     renderTabs();
 }
+
+function clearActiveDocument
 
 function clearActiveDocument() {
     currentOID = null;
@@ -1694,20 +1695,15 @@ function clearActiveDocument() {
 }
 
 function closeTab(oid) {
-    if (mainTabs.activeId === oid) openRequestID++;
-    const pos = mainTabs.tabs.indexOf(oid);
-    if (pos < 0) return;
-    mainTabs.tabs.splice(pos, 1);
-    mainTabs.pinned = mainTabs.pinned.filter((id) => id !== oid);
-    mainTabs.histories.delete(oid);
-    mainTabs.scrollPositions.delete(oid);
-    if (mainTabs.activeId === oid) {
-        mainTabs.activeId = mainTabs.tabs[Math.min(pos, mainTabs.tabs.length - 1)] || null;
-        if (mainTabs.activeId) {
+    const result = tabWorkspace.closeTab("main", oid);
+    if (!result) return;
+    if (result.wasActive) {
+        openRequestID++;
+        if (result.activeId) {
             saveOpenTabs();
             renderTabs();
-            if (isEmptyTab(mainTabs.activeId)) activateEmptyTab(mainTabs.activeId);
-            else openDocument(getTabDocumentOID(mainTabs.activeId), undefined, "tab", mainTabs.activeId);
+            if (isEmptyTab(result.activeId)) activateEmptyTab(result.activeId);
+            else void openDocument(getTabDocumentOID(result.activeId), undefined, "tab", result.activeId);
             return;
         }
         clearActiveDocument();
@@ -1715,20 +1711,19 @@ function closeTab(oid) {
     saveOpenTabs();
     renderTabs();
 }
+
+function closeUnpinnedTabs
 
 function closeUnpinnedTabs() {
-    const remaining = mainTabs.tabs.filter((id) => mainTabs.pinned.includes(id));
-    if (remaining.length === mainTabs.tabs.length) return;
-    const activeWasClosed = mainTabs.activeId && !mainTabs.pinned.includes(mainTabs.activeId);
-    mainTabs.tabs = remaining;
-    if (activeWasClosed) {
+    const result = tabWorkspace.closeUnpinned("main");
+    if (!result) return;
+    if (result.activeWasClosed) {
         openRequestID++;
-        mainTabs.activeId = remaining[remaining.length - 1] || null;
-        if (mainTabs.activeId) {
+        if (result.activeId) {
             saveOpenTabs();
             renderTabs();
-            if (isEmptyTab(mainTabs.activeId)) activateEmptyTab(mainTabs.activeId);
-            else openDocument(getTabDocumentOID(mainTabs.activeId), undefined, "tab", mainTabs.activeId);
+            if (isEmptyTab(result.activeId)) activateEmptyTab(result.activeId);
+            else void openDocument(getTabDocumentOID(result.activeId), undefined, "tab", result.activeId);
             return;
         }
         clearActiveDocument();
@@ -1737,6 +1732,7 @@ function closeUnpinnedTabs() {
     renderTabs();
 }
 
+/* ---------- Избранное
 
 /* ---------- Избранное / недавние / палитра ---------- */
 
@@ -2061,19 +2057,18 @@ function splitTabContextMenu(tab) {
 }
 
 function toggleSplitPinnedTab(id) {
-    if (!splitWorkspace.tabs.includes(id)) return;
-    if (splitWorkspace.pinned.includes(id)) splitWorkspace.pinned = splitWorkspace.pinned.filter((item) => item !== id);
-    else splitWorkspace.pinned.push(id);
+    if (!tabWorkspace.togglePinned("split", id)) return;
     saveSplitTabs();
     renderSplitTabs();
 }
+
+function createSplitTab
 
 function createSplitTab() {
     splitOpenRequestID++;
     saveActiveSplitScroll();
     const id = createSplitEmptyTabID();
-    splitWorkspace.tabs.push(id);
-    splitWorkspace.activeId = id;
+    if (!tabWorkspace.createTab("split", id)) return;
     splitCurrentOID = null;
     splitDocumentUpdated = "";
     splitHistory = [];
@@ -2086,11 +2081,13 @@ function createSplitTab() {
     updateHistoryButtons();
 }
 
+async function activateSplitTab
+
 async function activateSplitTab(id) {
     if (!id || id === splitWorkspace.activeId) { activePane = "split"; return; }
     saveActiveSplitScroll();
+    if (!tabWorkspace.activateTab("split", id)) return;
     activePane = "split";
-    splitWorkspace.activeId = id;
     if (isEmptyTab(id)) {
         splitOpenRequestID++;
         splitCurrentOID = null;
@@ -2109,30 +2106,17 @@ async function activateSplitTab(id) {
     await openSplitDocument(getTabDocumentOID(id), undefined, "tab", id);
 }
 
+function closeSplitTab
+
 function closeSplitTab(id) {
-    const pos = splitWorkspace.tabs.indexOf(id);
-    if (pos < 0) return;
-    splitWorkspace.tabs.splice(pos, 1);
-    splitWorkspace.pinned = splitWorkspace.pinned.filter((item) => item !== id);
-    splitWorkspace.histories.delete(id);
-    splitWorkspace.scrollPositions.delete(id);
-    if (splitWorkspace.activeId === id) {
+    const result = tabWorkspace.closeTab("split", id);
+    if (!result) return;
+    if (result.wasActive) {
         splitOpenRequestID++;
-        splitWorkspace.activeId = splitWorkspace.tabs[Math.min(pos, splitWorkspace.tabs.length - 1)] || null;
-        if (splitWorkspace.activeId) {
+        if (result.activeId && !isEmptyTab(result.activeId)) {
             saveSplitTabs();
             renderSplitTabs();
-            if (isEmptyTab(splitWorkspace.activeId)) {
-                splitCurrentOID = null;
-                splitDocumentOID = null;
-                splitHistory = [];
-                splitHistoryIndex = -1;
-                $("splitWelcome").style.display = "flex";
-                $("splitDocViewer").style.display = "none";
-                updateHistoryButtons();
-            } else {
-                void openSplitDocument(getTabDocumentOID(splitWorkspace.activeId), undefined, "tab", splitWorkspace.activeId);
-            }
+            void openSplitDocument(getTabDocumentOID(result.activeId), undefined, "tab", result.activeId);
             return;
         }
         splitCurrentOID = null;
@@ -2148,16 +2132,17 @@ function closeSplitTab(id) {
     markActive();
 }
 
+function closeUnpinnedSplitTabs
+
 function closeUnpinnedSplitTabs() {
-    const remaining = splitWorkspace.tabs.filter((id) => splitWorkspace.pinned.includes(id));
-    if (remaining.length === splitWorkspace.tabs.length) return;
-    const activeClosed = splitWorkspace.activeId && !splitWorkspace.pinned.includes(splitWorkspace.activeId);
-    splitWorkspace.tabs = remaining;
-    if (activeClosed) {
+    const result = tabWorkspace.closeUnpinned("split");
+    if (!result) return;
+    if (result.activeWasClosed) {
         splitOpenRequestID++;
-        splitWorkspace.activeId = remaining[remaining.length - 1] || null;
-        if (splitWorkspace.activeId && !isEmptyTab(splitWorkspace.activeId)) {
-            void openSplitDocument(getTabDocumentOID(splitWorkspace.activeId), undefined, "tab", splitWorkspace.activeId);
+        if (result.activeId && !isEmptyTab(result.activeId)) {
+            saveSplitTabs();
+            renderSplitTabs();
+            void openSplitDocument(getTabDocumentOID(result.activeId), undefined, "tab", result.activeId);
             return;
         }
         splitCurrentOID = null;
@@ -2171,6 +2156,8 @@ function closeUnpinnedSplitTabs() {
     renderSplitTabs();
     updateHistoryButtons();
 }
+
+async function restoreSplitTabs
 
 async function restoreSplitTabs() {
     if (!splitWorkspace.tabs.length) {
@@ -2242,44 +2229,31 @@ function closeSplitView() {
     saveActiveSplitScroll();
     if (find.open && findPane === "split") closeFindBar();
     splitViewEnabled = false;
-    const transferred = [];
-    const idMap = new Map();
-    for (const oldID of splitWorkspace.tabs) {
-        let nextID = oldID;
-        const oid = getTabDocumentOID(oldID);
-        if (mainTabs.tabs.includes(nextID)) nextID = oid ? createDuplicateTabID(oid) : createEmptyTabID();
-        idMap.set(oldID, nextID);
-        transferred.push(nextID);
-        if (splitWorkspace.pinned.includes(oldID)) mainTabs.pinned.push(nextID);
-        if (splitWorkspace.histories.has(oldID)) mainTabs.histories.set(nextID, splitWorkspace.histories.get(oldID));
-        if (splitWorkspace.scrollPositions.has(oldID)) mainTabs.scrollPositions.set(nextID, splitWorkspace.scrollPositions.get(oldID));
-    }
-    mainTabs.tabs.push(...transferred);
-    if (splitWorkspace.activeId && idMap.has(splitWorkspace.activeId)) mainTabs.activeId = idMap.get(splitWorkspace.activeId);
-    splitWorkspace.tabs = [];
-    splitWorkspace.pinned = [];
-    splitWorkspace.activeId = null;
+    tabWorkspace.mergePane("split", "main", (oldID) => {
+        return isEmptyTab(oldID) ? createEmptyTabID() : createDuplicateTabID(getTabDocumentOID(oldID));
+    });
     splitCurrentOID = null;
     splitDocumentOID = null;
     splitHistory = [];
     splitHistoryIndex = -1;
-    splitWorkspace.histories.clear();
-    splitWorkspace.scrollPositions.clear();
     activePane = "main";
     prefSet("splitView", "0");
     prefSet("splitTabs", "[]");
     prefSet("splitPinnedTabs", "[]");
     prefSet("splitActiveTabOID", "");
     prefSet("splitDocumentOID", "");
-    normalizeTabOrder();
     saveOpenTabs();
+    saveSplitTabs();
     renderTabs();
+    renderSplitTabs();
     renderSplitView();
     if (mainTabs.activeId) {
         if (isEmptyTab(mainTabs.activeId)) activateEmptyTab(mainTabs.activeId);
         else void openDocument(getTabDocumentOID(mainTabs.activeId), undefined, "tab", mainTabs.activeId);
     }
 }
+
+async function openSplitDocument
 
 async function openSplitDocument(oid, query, source, targetTabID) {
     if (!oid) return;
