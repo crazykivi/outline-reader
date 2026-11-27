@@ -165,7 +165,7 @@ class TabWorkspace {
 
     createTab(paneName, tabId) {
         const pane = this.getPane(paneName);
-        if (!pane || !tabId || this.ownerOf(tabId)) return false;
+        if (!pane || !tabId || this.main.tabs.includes(tabId) || this.split.tabs.includes(tabId)) return false;
         pane.tabs.push(tabId);
         pane.activeId = tabId;
         this.revision++;
@@ -274,7 +274,7 @@ class TabWorkspace {
                 if (pane.pinned.includes(emptyId)) pane.pinned = pane.pinned.map((id) => id === emptyId ? nextId : id);
                 pane.histories.delete(emptyId);
                 pane.scrollPositions.delete(emptyId);
-            } else if (this.ownerOf(nextId) && this.ownerOf(nextId) !== paneName) {
+            } else if (other.tabs.includes(nextId)) {
                 nextId = createDuplicate(documentOID);
             }
             if (!pane.tabs.includes(nextId)) pane.tabs.push(nextId);
@@ -292,7 +292,7 @@ class TabWorkspace {
                 nextId = duplicateInPane || other.tabs.includes(documentOID) ? createDuplicate(documentOID) : documentOID;
             }
 
-            if (this.ownerOf(nextId) && this.ownerOf(nextId) !== paneName) nextId = createDuplicate(documentOID);
+            if (other.tabs.includes(nextId)) nextId = createDuplicate(documentOID);
             if (previousId && previousId !== nextId) {
                 const savedHistory = pane.histories.get(previousId);
                 const savedScroll = pane.scrollPositions.get(previousId);
