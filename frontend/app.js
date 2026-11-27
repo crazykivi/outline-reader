@@ -1848,6 +1848,10 @@ function renderCrumbs(oid) {
     });
 }
 
+function parseMarkdownBlock(md) {
+    return marked.parse(normalizeMarkdownTables(md));
+}
+
 function renderMarkdown(md) {
     const el = $("docContent");
     el.innerHTML = DOMPurify.sanitize(transformNotices(md, 0), {
@@ -1891,14 +1895,14 @@ function renderMarkdown(md) {
 }
 
 function transformNotices(md, depth) {
-    if (depth > 4) return marked.parse(md);
+    if (depth > 4) return parseMarkdownBlock(md);
     const lines = md.split("\n");
     const parts = [];
     let plain = [];
     let fence = null;
     let i = 0;
     const flush = () => {
-        if (plain.length) { parts.push(marked.parse(plain.join("\n"))); plain = []; }
+        if (plain.length) { parts.push(parseMarkdownBlock(plain.join("\n"))); plain = []; }
     };
     while (i < lines.length) {
         const line = lines[i];
