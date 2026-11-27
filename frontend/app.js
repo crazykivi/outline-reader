@@ -1509,7 +1509,7 @@ function moveTabBetweenPanes(tabID, sourcePane, targetPane, targetTabID, after) 
             splitDocumentOID = null;
             splitHistory = [];
             splitHistoryIndex = -1;
-            $("splitWelcome").style.display = "flex";
+            showSplitWelcome();
             $("splitDocViewer").style.display = "none";
         } else {
             void openSplitDocument(getTabDocumentOID(result.sourceActiveId), undefined, "tab", result.sourceActiveId);
@@ -1531,7 +1531,7 @@ function moveTabBetweenPanes(tabID, sourcePane, targetPane, targetTabID, after) 
             splitDocumentOID = null;
             splitHistory = [];
             splitHistoryIndex = -1;
-            $("splitWelcome").style.display = "flex";
+            showSplitWelcome();
             $("splitDocViewer").style.display = "none";
         } else {
             void openSplitDocument(getTabDocumentOID(tabID), undefined, "tab", tabID);
@@ -2083,7 +2083,7 @@ function createSplitTab() {
     splitHistory = [];
     splitHistoryIndex = -1;
     activePane = "split";
-    $("splitWelcome").style.display = "flex";
+    showSplitWelcome();
     $("splitDocViewer").style.display = "none";
     saveSplitTabs();
     renderSplitTabs();
@@ -2102,7 +2102,7 @@ async function activateSplitTab(id) {
         splitDocumentUpdated = "";
         splitHistory = [];
         splitHistoryIndex = -1;
-        $("splitWelcome").style.display = "flex";
+        showSplitWelcome();
         $("splitDocViewer").style.display = "none";
         saveSplitTabs();
         renderSplitTabs();
@@ -2128,7 +2128,7 @@ function closeSplitTab(id) {
         splitDocumentOID = null;
         splitHistory = [];
         splitHistoryIndex = -1;
-        $("splitWelcome").style.display = "flex";
+        showSplitWelcome();
         $("splitDocViewer").style.display = "none";
     }
     saveSplitTabs();
@@ -2152,7 +2152,7 @@ function closeUnpinnedSplitTabs() {
         splitDocumentOID = null;
         splitHistory = [];
         splitHistoryIndex = -1;
-        $("splitWelcome").style.display = "flex";
+        showSplitWelcome();
         $("splitDocViewer").style.display = "none";
     }
     saveSplitTabs();
@@ -2173,7 +2173,7 @@ async function restoreSplitTabs() {
     if (isEmptyTab(splitWorkspace.activeId)) {
         splitCurrentOID = null;
         splitDocumentOID = null;
-        $("splitWelcome").style.display = "flex";
+        showSplitWelcome();
         $("splitDocViewer").style.display = "none";
         saveSplitTabs();
         return;
@@ -2181,6 +2181,15 @@ async function restoreSplitTabs() {
     const oid = getTabDocumentOID(splitWorkspace.activeId);
     await openSplitDocument(oid, undefined, "tab", splitWorkspace.activeId);
     activePane = "main";
+}
+
+function showSplitWelcome() {
+    $("splitWelcome").style.display = "flex";
+    $("splitDocViewer").style.display = "none";
+    const link = $("splitDocLink");
+    link.style.display = "none";
+    link.removeAttribute("href");
+    link.onclick = null;
 }
 
 function renderSplitView() {
@@ -2356,7 +2365,7 @@ async function refreshSplitDocument() {
         splitDocumentUpdated = "";
         prefSet("splitDocumentOID", "");
         $("splitContent").innerHTML = "";
-        $("splitWelcome").style.display = "flex";
+        showSplitWelcome();
         $("splitDocViewer").style.display = "none";
         renderSplitView();
     }
