@@ -13,9 +13,7 @@ function isEmpty(id) {
 }
 
 function documentOID(id) {
-    if (isEmpty(id)) return null;
-    const separator = id.indexOf(":");
-    return separator >= 0 ? id.slice(separator + 1) : id;
+    return isEmpty(id) ? null : id;
 }
 
 function replacement(pane, id, oid, empty) {
@@ -83,9 +81,9 @@ test("normalization repairs persisted IDs shared by both panes", () => {
     state.normalize(documentOID, isEmpty, replacement);
 
     assert.deepEqual(state.main.tabs, ["doc:a"]);
-    assert.deepEqual(state.split.tabs, ["duplicate:split:a", "doc:b"]);
-    assert.deepEqual(state.split.pinned, ["duplicate:split:a"]);
-    assert.equal(state.split.activeId, "duplicate:split:a");
+    assert.deepEqual(state.split.tabs, ["duplicate:split:doc:a", "doc:b"]);
+    assert.deepEqual(state.split.pinned, ["duplicate:split:doc:a"]);
+    assert.equal(state.split.activeId, "duplicate:split:doc:a");
     assert.equal(state.assert(), true);
 });
 
