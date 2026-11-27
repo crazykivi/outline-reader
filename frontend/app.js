@@ -1876,6 +1876,7 @@ async function restoreSplitDocument() {
         splitDocumentOID = null;
         splitDocumentUpdated = "";
         prefSet("splitDocumentOID", "");
+        renderSplitView();
     }
 }
 
