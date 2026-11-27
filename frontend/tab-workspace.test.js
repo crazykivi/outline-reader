@@ -83,9 +83,9 @@ test("normalization repairs persisted IDs shared by both panes", () => {
     state.normalize(documentOID, isEmpty, replacement);
 
     assert.deepEqual(state.main.tabs, ["doc:a"]);
-    assert.deepEqual(state.split.tabs, ["duplicate:split:doc:a", "doc:b"]);
-    assert.deepEqual(state.split.pinned, ["duplicate:split:doc:a"]);
-    assert.equal(state.split.activeId, "duplicate:split:doc:a");
+    assert.deepEqual(state.split.tabs, ["duplicate:split:a", "doc:b"]);
+    assert.deepEqual(state.split.pinned, ["duplicate:split:a"]);
+    assert.equal(state.split.activeId, "duplicate:split:a");
     assert.equal(state.assert(), true);
 });
 
@@ -99,4 +99,14 @@ test("reordering stays inside its pane and preserves pinned grouping", () => {
     assert.deepEqual(state.main.tabs, ["pin:a", "doc:c", "doc:b"]);
     assert.equal(state.ownerOf("doc:c"), "main");
     assert.equal(state.assert(), true);
+});
+
+test("a drag session can be consumed only once", () => {
+    const state = workspace();
+    state.main.tabs = ["doc:a"];
+    state.main.activeId = "doc:a";
+
+    assert.equal(state.beginDrag("doc:a", "main"), true);
+    assert.deepEqual(state.consumeDrag("split"), { tabId: "doc:a", pane: "main", token: 1 });
+    assert.equal(state.consumeDrag("split"), null);
 });
