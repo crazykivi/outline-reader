@@ -1624,9 +1624,16 @@ function handleTabBarDrop(event, targetPane) {
     event.preventDefault();
     const tabID = draggedTabOID;
     const sourcePane = draggedTabPane;
+    const targetTab = event.target.closest(".doc-tab");
+    const targetTabID = targetTab && targetTab.closest(targetPane === "main" ? "#docTabs" : "#splitTabs")
+        ? targetTab.dataset.oid
+        : null;
+    const after = targetTab
+        ? event.clientX >= targetTab.getBoundingClientRect().left + targetTab.offsetWidth / 2
+        : false;
     draggedTabOID = null;
     draggedTabPane = null;
-    moveTabBetweenPanes(tabID, sourcePane, targetPane, null, false);
+    moveTabBetweenPanes(tabID, sourcePane, targetPane, targetTabID, after);
 }
 
 function renderTabs() {
@@ -1705,15 +1712,11 @@ function renderTabs() {
         });
         tab.addEventListener("dragleave", () => tab.classList.remove("drop-before", "drop-after"));
         tab.addEventListener("drop", (event) => {
-            if (!draggedTabOID) return;
+            if (!draggedTabOID || draggedTabPane !== "main") return;
             event.preventDefault();
             const sourceOID = draggedTabOID;
-            const sourcePane = draggedTabPane;
             const after = event.clientX >= tab.getBoundingClientRect().left + tab.offsetWidth / 2;
-            draggedTabOID = null;
-            draggedTabPane = null;
-            if (sourcePane === "split") moveTabBetweenPanes(sourceOID, "split", "main", tabID, after);
-            else if (pinnedTabs.includes(sourceOID) === isPinned) reorderTab(sourceOID, tabID, after);
+            if (pinnedTabs.includes(sourceOID) === isPinned) reorderTab(sourceOID, tabID, after);
         });
         tab.addEventListener("dragend", () => {
             draggedTabOID = null;
@@ -2118,24 +2121,19 @@ function renderSplitTabs() {
         });
         tab.addEventListener("dragleave", () => tab.classList.remove("drop-before", "drop-after"));
         tab.addEventListener("drop", (event) => {
-            if (!draggedTabOID) return;
+            if (!draggedTabOID || draggedTabPane !== "split") return;
             event.preventDefault();
             const sourceOID = draggedTabOID;
-            const sourcePane = draggedTabPane;
-            const after = event.clientX >= tab.getBoundingClientRect().left + tab.offsetWidth / 2;
-            draggedTabOID = null;
-            draggedTabPane = null;
-            if (sourcePane === "main") {
-                moveTabBetweenPanes(sourceOID, "main", "split", tabID, after);
-                return;
-            }
             if (splitPinnedTabs.includes(sourceOID) !== pinned) return;
             const source = splitTabs.indexOf(sourceOID);
             const target = splitTabs.indexOf(tabID);
             if (source < 0 || target < 0) return;
+            const after = event.clientX >= tab.getBoundingClientRect().left + tab.offsetWidth / 2;
             const moved = splitTabs.splice(source, 1)[0];
             const nextTarget = splitTabs.indexOf(tabID);
             splitTabs.splice(nextTarget + (after ? 1 : 0), 0, moved);
+            draggedTabOID = null;
+            draggedTabPane = null;
             saveSplitTabs();
             renderSplitTabs();
         });
