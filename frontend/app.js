@@ -34,7 +34,7 @@ let toastTimer = null, noticeTimer = null;
 let toastAction = null;
 let toastDuration = 4000;
 let updateCheckStarted = false;
-const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "sidebarAutoHide", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect", "openTabs", "pinnedTabs", "activeTabOID", "splitView", "splitDocumentOID"];
+const PREF_KEYS = ["theme", "fullWidth", "fontScale", "sideWidth", "sidebarAutoHide", "expanded", "collapsedCollections", "favoritesCollapsed", "tocOpen", "captureProtect", "openTabs", "pinnedTabs", "activeTabOID", "splitView", "splitDocumentOID", "splitTabs", "splitPinnedTabs", "splitActiveTabOID", "splitWidth"];
 let prefsReady = false;
 let prefsTimer = null;
 const prefsDirty = new Map();
@@ -85,6 +85,17 @@ async function loadPrefs() {
     tocOpen = prefGet("tocOpen") === "1";
     splitViewEnabled = prefGet("splitView") === "1";
     splitDocumentOID = prefGet("splitDocumentOID", "") || null;
+    try { splitTabs = JSON.parse(prefGet("splitTabs", "[]")); } catch (e) { splitTabs = []; }
+    if (!Array.isArray(splitTabs)) splitTabs = [];
+    splitTabs = [...new Set(splitTabs.filter((id) => typeof id === "string" && id))];
+    try { splitPinnedTabs = JSON.parse(prefGet("splitPinnedTabs", "[]")); } catch (e) { splitPinnedTabs = []; }
+    if (!Array.isArray(splitPinnedTabs)) splitPinnedTabs = [];
+    splitPinnedTabs = [...new Set(splitPinnedTabs.filter((id) => splitTabs.includes(id)))];
+    splitActiveTabOID = prefGet("splitActiveTabOID", "") || null;
+    if (splitActiveTabOID && !splitTabs.includes(splitActiveTabOID)) splitActiveTabOID = splitTabs[splitTabs.length - 1] || null;
+    splitWidth = Math.max(30, Math.min(70, parseFloat(prefGet("splitWidth", "50")) || 50));
+    if (!splitTabs.length && splitDocumentOID) splitTabs = [splitDocumentOID];
+    if (!splitActiveTabOID) splitActiveTabOID = splitTabs[splitTabs.length - 1] || null;
     try { expanded = new Set(JSON.parse(prefGet("expanded", "[]"))); } catch (e) { expanded = new Set(); }
     try { collapsedCollections = new Set(JSON.parse(prefGet("collapsedCollections", "[]"))); } catch (e) { collapsedCollections = new Set(); }
     favoritesCollapsed = prefGet("favoritesCollapsed", "false") === "true";
@@ -135,6 +146,15 @@ let splitViewEnabled = prefGet("splitView") === "1";
 let splitDocumentOID = prefGet("splitDocumentOID", "") || null;
 let splitDocumentUpdated = "";
 let splitOpenRequestID = 0;
+let activePane = "main";
+let splitTabs = [];
+let splitPinnedTabs = [];
+let splitActiveTabOID = null;
+let splitTabHistories = new Map();
+let splitTabScrollPositions = new Map();
+let splitHistory = [];
+let splitHistoryIndex = -1;
+let splitWidth = 50;
 
 const palette = { open: false, items: [], sel: 0, timer: null };
 
@@ -556,6 +576,24 @@ function bindUI() {
     $("favBtn").addEventListener("click", toggleFav);
     $("splitViewBtn").addEventListener("click", toggleSplitView);
     $("splitClose").addEventListener("click", closeSplitView);
+    $("splitViewCloseBtn").addEventListener("click", closeSplitView);
+    $("splitBackBtn").addEventListener("click", goBackSplit);
+    $("splitForwardBtn").addEventListener("click", goForwardSplit);
+    $("splitPane").addEventListener("pointerdown", () => { activePane = "split"; updateHistoryButtons(); });
+    $("splitPane").addEventListener("focusin", () => { activePane = "split"; updateHistoryButtons(); });
+    $("splitTabs").addEventListener("wheel", (event) => {
+        const bar = $("splitTabs");
+        if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) { bar.scrollLeft += event.deltaY; event.preventDefault(); }
+    }, { passive: false });
+    $("splitTabs").addEventListener("mousedown", (event) => {
+        if (event.button !== 1) return;
+        const tab = event.target.closest(".doc-tab");
+        if (!tab) return;
+        event.preventDefault(); event.stopPropagation(); closeSplitTab(tab.dataset.oid);
+    });
+    bindContextMenu($("splitTabs"), (event, tab) => splitTabContextMenu(tab));
+    document.querySelector(".viewer").addEventListener("pointerdown", () => { activePane = "main"; updateHistoryButtons(); });
+    $("splitResizer").addEventListener("mousedown", startSplitResize);
     $("docTree").addEventListener("contextmenu", (event) => {
         const row = event.target.closest(".tree-row[data-oid], .search-hit[data-oid]");
         if (!row || !$("docTree").contains(row)) return;
@@ -975,7 +1013,7 @@ async function doReset() {
     try {
         clearTimeout(searchTimer);
         await go().ResetApp();
-        ["or.expanded", "or.theme", "or.sideWidth", "or.fullWidth", "or.fontScale", "or.tocOpen", "or.captureProtect", "or.openTabs", "or.pinnedTabs", "or.activeTabOID", "or.splitView", "or.splitDocumentOID"]
+        ["or.expanded", "or.theme", "or.sideWidth", "or.fullWidth", "or.fontScale", "or.tocOpen", "or.captureProtect", "or.openTabs", "or.pinnedTabs", "or.activeTabOID", "or.splitView", "or.splitDocumentOID", "or.splitTabs", "or.splitPinnedTabs", "or.splitActiveTabOID", "or.splitWidth"]
             .forEach((k) => localStorage.removeItem(k));
         window.location.reload();
     } catch (err) {
@@ -1060,7 +1098,7 @@ async function loadTree() {
         buildIndex();
         renderTabs();
         await refreshFavorites();
-        if (splitViewEnabled && splitDocumentOID && !splitDocumentUpdated) await restoreSplitDocument();
+        if (splitViewEnabled) await restoreSplitTabs();
         renderSplitView();
         if (currentOID) expandAncestors(currentOID);
         renderTree();
@@ -1293,8 +1331,9 @@ function renderNodes(nodes, depth) {
 
 function markActive() {
     document.querySelectorAll(".tree-row.active").forEach((el) => el.classList.remove("active"));
-    if (!currentOID) return;
-    const esc = CSS.escape(currentOID);
+    const selectedOID = activePane === "split" && splitViewEnabled ? splitDocumentOID : currentOID;
+    if (!selectedOID) return;
+    const esc = CSS.escape(selectedOID);
     let row = activeSource === "fav"
         ? document.querySelector(`.tree-row.fav-row[data-oid="${esc}"]`)
         : document.querySelector(`.tree-row:not(.fav-row)[data-oid="${esc}"]`);
@@ -1313,6 +1352,7 @@ function markActive() {
 }
 
 function goBack() {
+    if (activePane === "split" && splitViewEnabled) { goBackSplit(); return; }
     if (historyIndex <= 0) return;
     historyIndex--;
     skipHistoryPush = true;
@@ -1320,6 +1360,7 @@ function goBack() {
 }
 
 function goForward() {
+    if (activePane === "split" && splitViewEnabled) { goForwardSplit(); return; }
     if (historyIndex >= history.length - 1) return;
     historyIndex++;
     skipHistoryPush = true;
@@ -1327,8 +1368,11 @@ function goForward() {
 }
 
 function updateHistoryButtons() {
-    $("backBtn").disabled = historyIndex <= 0;
-    $("forwardBtn").disabled = historyIndex >= history.length - 1;
+    const split = activePane === "split" && splitViewEnabled;
+    $("backBtn").disabled = split ? true : historyIndex <= 0;
+    $("forwardBtn").disabled = split ? true : historyIndex >= history.length - 1;
+    $("splitBackBtn").disabled = splitHistoryIndex <= 0;
+    $("splitForwardBtn").disabled = splitHistoryIndex >= splitHistory.length - 1;
 }
 
 function isEmptyTab(oid) {
@@ -1727,6 +1771,8 @@ function paletteMove(dir) {
 /* ---------- Документ ---------- */
 
 async function openDocument(oid, query, source, targetTabID) {
+    if (activePane === "split" && splitViewEnabled) return openSplitDocument(oid, query, source, targetTabID);
+    activePane = "main";
     const requestID = ++openRequestID;
     try {
         const doc = await go().GetDocument(oid);
