@@ -2290,6 +2290,7 @@ async function openSplitDocument(oid, query, source, targetTabID) {
         splitDocumentOID = oid;
         saveSplitTabs();
         showSplitDoc(doc);
+        if (source === "tab") $("splitDocViewer").scrollTop = splitWorkspace.scrollPositions.get(targetTabID) || 0;
         renderSplitTabs();
         renderSplitView();
         markActive();
