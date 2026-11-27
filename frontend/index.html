@@ -612,18 +612,47 @@
                                     <div class="doc-meta"><span id="docDate"></span></div>
                                 </div>
                                 <div class="doc-links">
-                                    <button id="favBtn" class="btn-mini" style="display:none" title="В избранное">
-                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2" stroke-linejoin="round">
-                                            <path
-                                                d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2-6.2 3.2L7 14.2 2 9.3l6.9-1z" />
-                                        </svg>
+                                    <button id="splitViewBtn" class="btn-mini" type="button" title="Открыть вторую панель" aria-label="Открыть вторую панель">
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
                                     </button>
                                 </div>
                             </div>
                             <div id="docContent" class="doc-content"></div>
                         </div>
                     </main>
+                    <div id="splitResizer" class="split-resizer" style="display:none" role="separator" aria-orientation="vertical" aria-label="Изменить ширину областей"></div>
+                    <aside id="splitPane" class="split-pane" style="display:none" aria-label="Правая рабочая область">
+                        <div class="split-tabbar">
+                            <div id="splitTabs" class="doc-tabs" role="tablist" aria-label="Вкладки правой области"></div>
+                            <div class="split-controls">
+                                <button id="splitClose" class="btn-icon" type="button" title="Закрыть разделение" aria-label="Закрыть разделение"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+                            </div>
+                        </div>
+                        <div id="splitWelcome" class="welcome">
+                            <div class="welcome-icon"><svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></svg></div>
+                            <h2>Выберите документ</h2>
+                            <p>Откройте документ из дерева или поиска. Он появится в активной области.</p>
+                        </div>
+                        <div class="doc-links split-doc-links">
+                            <a id="splitDocLink" class="doc-link" style="display:none" target="_blank" rel="noreferrer">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6M10 14 21 3"/></svg>
+                                <span class="doc-link-text">Перейти</span>
+                            </a>
+                        </div>
+                        <button id="splitMenuBtn" class="btn-icon veiwer-div" type="button" title="Меню">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
+                        </button>
+                        <div id="splitDocViewer" class="doc-viewer split-doc-viewer" style="display:none">
+                            <nav id="splitCrumbs" class="doc-crumbs"></nav>
+                            <div class="doc-header">
+                                <div class="doc-header-main">
+                                    <h2 id="splitTitle"></h2>
+                                    <div class="doc-meta"><span id="splitDate"></span></div>
+                                </div>
+                            </div>
+                            <div id="splitContent" class="doc-content"></div>
+                        </div>
+                    </aside>
                 </div>
             </div>
 
