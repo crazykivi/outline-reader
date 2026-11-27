@@ -66,14 +66,8 @@ async function flushPrefs() {
 async function loadPrefs() {
     prefsReady = false;
     let remote = {};
-    try {
-        remote = (await go().GetPrefs()) || {};
-    } catch (err) {
-        console.warn("[UI] prefs load:", err);
-    }
-    PREF_KEYS.forEach((k) => {
-        if (typeof remote[k] === "string") localStorage.setItem("or." + k, remote[k]);
-    });
+    try { remote = (await go().GetPrefs()) || {}; } catch (err) { console.warn("[UI] prefs load:", err); }
+    PREF_KEYS.forEach((k) => { if (typeof remote[k] === "string") localStorage.setItem("or." + k, remote[k]); });
     applyTheme(prefGet("theme", "dark"));
     applyFullWidth(prefGet("fullWidth") === "1", "main");
     applyFullWidth(prefGet("splitFullWidth") === "1", "split");
@@ -102,26 +96,22 @@ async function loadPrefs() {
     mainTabs.tabs = [...new Set(mainTabs.tabs.filter((id) => typeof id === "string" && id))];
     try { mainTabs.pinned = JSON.parse(prefGet("pinnedTabs", "[]")); } catch (e) { mainTabs.pinned = []; }
     if (!Array.isArray(mainTabs.pinned)) mainTabs.pinned = [];
-    mainTabs.pinned = [...new Set(mainTabs.pinned.filter((id) => typeof id === "string" && mainTabs.tabs.includes(id)))];
-    normalizeTabOrder();
+    mainTabs.pinned = [...new Set(mainTabs.pinned.filter((id) => mainTabs.tabs.includes(id)))];
     mainTabs.activeId = prefGet("activeTabOID", "") || null;
     if (mainTabs.activeId && !mainTabs.tabs.includes(mainTabs.activeId)) mainTabs.activeId = mainTabs.tabs[mainTabs.tabs.length - 1] || null;
+    tabWorkspace.normalize(getTabDocumentOID, isEmptyTab, (pane, id, oid, empty) => empty ? createSplitEmptyTabID() : createSplitDuplicateTabID(oid));
     tabsRestored = false;
     const w = parseInt(prefGet("sideWidth", "300"), 10);
     const sidebar = document.querySelector(".sidebar");
-    if (sidebar && w >= 220 && w <= 480) {
-        sidebar.style.width = w + "px";
-        setSideWidth(w);
-    }
+    if (sidebar && w >= 220 && w <= 480) { sidebar.style.width = w + "px"; setSideWidth(w); }
     prefsReady = true;
     if (Object.keys(remote).length === 0) {
-        PREF_KEYS.forEach((k) => {
-            const v = localStorage.getItem("or." + k);
-            if (v !== null) prefsDirty.set(k, v);
-        });
+        PREF_KEYS.forEach((k) => { const v = localStorage.getItem("or." + k); if (v !== null) prefsDirty.set(k, v); });
         await flushPrefs();
     }
 }
+
+let fullWidth
 
 let fullWidth = prefGet("fullWidth") === "1";
 let splitFullWidth = prefGet("splitFullWidth") === "1";
@@ -1447,12 +1437,10 @@ function createNewTab() {
 }
 
 function normalizeTabOrder() {
-    const pinned = new Set(mainTabs.pinned);
-    mainTabs.tabs = [
-        ...mainTabs.tabs.filter((id) => pinned.has(id)),
-        ...mainTabs.tabs.filter((id) => !pinned.has(id)),
-    ];
+    tabWorkspace.normalizeOrder(mainTabs);
 }
+
+function saveOpenTabs
 
 function saveOpenTabs() {
     normalizeTabOrder();
@@ -1488,84 +1476,49 @@ async function restoreOpenTabs() {
 
 function moveTabBetweenPanes(tabID, sourcePane, targetPane, targetTabID, after) {
     if (!tabID || sourcePane === targetPane) return false;
-    const sourceTabs = sourcePane === "main" ? mainTabs.tabs : splitWorkspace.tabs;
-    const targetTabs = targetPane === "main" ? mainTabs.tabs : splitWorkspace.tabs;
-    const sourcePinned = sourcePane === "main" ? mainTabs.pinned : splitWorkspace.pinned;
-    const targetPinned = targetPane === "main" ? mainTabs.pinned : splitWorkspace.pinned;
-    const sourceIndex = sourceTabs.indexOf(tabID);
-    if (sourceIndex < 0) return false;
     if (sourcePane === "main") saveActiveTabScroll();
     else saveActiveSplitScroll();
-
-    const wasActive = sourcePane === "main" ? mainTabs.activeId === tabID : splitWorkspace.activeId === tabID;
-    const wasPinned = sourcePinned.includes(tabID);
-    sourceTabs.splice(sourceIndex, 1);
-    const historyMap = sourcePane === "main" ? mainTabs.histories : splitWorkspace.histories;
-    const scrollMap = sourcePane === "main" ? mainTabs.scrollPositions : splitWorkspace.scrollPositions;
-    const targetHistoryMap = targetPane === "main" ? mainTabs.histories : splitWorkspace.histories;
-    const targetScrollMap = targetPane === "main" ? mainTabs.scrollPositions : splitWorkspace.scrollPositions;
-    const savedHistory = historyMap.get(tabID);
-    const savedScroll = scrollMap.get(tabID);
-    historyMap.delete(tabID);
-    scrollMap.delete(tabID);
-    if (wasPinned) sourcePinned.splice(sourcePinned.indexOf(tabID), 1);
-
-    const emptyTargetTabID = targetTabs.length === 1 && isEmptyTab(targetTabs[0]) && !targetPinned.includes(targetTabs[0])
-        ? targetTabs[0]
-        : null;
-    if (emptyTargetTabID) {
-        targetTabs.splice(0, 1);
-        targetHistoryMap.delete(emptyTargetTabID);
-        targetScrollMap.delete(emptyTargetTabID);
-    }
-
-    let movedID = tabID;
-    if (targetTabs.includes(movedID)) {
-        const oid = getTabDocumentOID(movedID);
-        movedID = oid
-            ? (targetPane === "main" ? createDuplicateTabID(oid) : createSplitDuplicateTabID(oid))
-            : (targetPane === "main" ? createEmptyTabID() : createSplitEmptyTabID());
-    }
-    const targetIndex = targetTabID ? targetTabs.indexOf(targetTabID) : -1;
-    let insertAt = targetIndex < 0
-        ? (wasPinned ? targetTabs.filter((id) => targetPinned.includes(id)).length : targetTabs.length)
-        : targetIndex + (after ? 1 : 0);
-    targetTabs.splice(insertAt, 0, movedID);
-    if (wasPinned) targetPinned.push(movedID);
-    if (savedHistory) targetHistoryMap.set(movedID, savedHistory);
-    if (savedScroll !== undefined) targetScrollMap.set(movedID, savedScroll);
-
+    const result = tabWorkspace.move({
+        tabId: tabID, sourcePane, targetPane, targetTabId: targetTabID, after,
+        isEmptyTab,
+        createEmpty: (pane) => pane === "main" ? createEmptyTabID() : createSplitEmptyTabID(),
+    });
+    if (!result) return false;
     if (sourcePane === "main") {
-        if (wasActive) {
-            mainTabs.activeId = mainTabs.tabs[Math.min(sourceIndex, mainTabs.tabs.length - 1)] || createEmptyTabID();
-            if (!mainTabs.tabs.length) mainTabs.tabs.push(mainTabs.activeId);
-            openRequestID++;
-        }
+        openRequestID++;
         saveOpenTabs();
         renderTabs();
     } else {
-        if (wasActive) {
-            splitWorkspace.activeId = splitWorkspace.tabs[Math.min(sourceIndex, splitWorkspace.tabs.length - 1)] || createSplitEmptyTabID();
-            if (!splitWorkspace.tabs.length) splitWorkspace.tabs.push(splitWorkspace.activeId);
-            splitOpenRequestID++;
-        }
+        splitOpenRequestID++;
         saveSplitTabs();
         renderSplitTabs();
     }
-
+    if (result.sourceWasActive) {
+        if (sourcePane === "main") {
+            if (isEmptyTab(result.sourceActiveId)) activateEmptyTab(result.sourceActiveId);
+            else void openDocument(getTabDocumentOID(result.sourceActiveId), undefined, "tab", result.sourceActiveId);
+        } else if (isEmptyTab(result.sourceActiveId)) {
+            splitCurrentOID = null;
+            splitDocumentOID = null;
+            splitHistory = [];
+            splitHistoryIndex = -1;
+            $("splitWelcome").style.display = "flex";
+            $("splitDocViewer").style.display = "none";
+        } else {
+            void openSplitDocument(getTabDocumentOID(result.sourceActiveId), undefined, "tab", result.sourceActiveId);
+        }
+    }
     if (targetPane === "main") {
         activePane = "main";
-        mainTabs.activeId = movedID;
         saveOpenTabs();
         renderTabs();
-        if (isEmptyTab(movedID)) activateEmptyTab(movedID);
-        else void openDocument(getTabDocumentOID(movedID), undefined, "tab", movedID);
+        if (isEmptyTab(tabID)) activateEmptyTab(tabID);
+        else void openDocument(getTabDocumentOID(tabID), undefined, "tab", tabID);
     } else {
         activePane = "split";
-        splitWorkspace.activeId = movedID;
         saveSplitTabs();
         renderSplitTabs();
-        if (isEmptyTab(movedID)) {
+        if (isEmptyTab(tabID)) {
             splitOpenRequestID++;
             splitCurrentOID = null;
             splitDocumentOID = null;
@@ -1573,31 +1526,18 @@ function moveTabBetweenPanes(tabID, sourcePane, targetPane, targetTabID, after) 
             splitHistoryIndex = -1;
             $("splitWelcome").style.display = "flex";
             $("splitDocViewer").style.display = "none";
-            updateHistoryButtons();
-            markActive();
         } else {
-            void openSplitDocument(getTabDocumentOID(movedID), undefined, "tab", movedID);
-        }
-    }
-
-    if (sourcePane === "main" && wasActive && mainTabs.activeId !== movedID) {
-        if (isEmptyTab(mainTabs.activeId)) activateEmptyTab(mainTabs.activeId);
-        else void openDocument(getTabDocumentOID(mainTabs.activeId), undefined, "tab", mainTabs.activeId);
-    } else if (sourcePane === "split" && wasActive && splitWorkspace.activeId !== movedID) {
-        if (isEmptyTab(splitWorkspace.activeId)) {
-            splitCurrentOID = null;
-            splitDocumentOID = null;
-            $("splitWelcome").style.display = "flex";
-            $("splitDocViewer").style.display = "none";
-        } else {
-            void openSplitDocument(getTabDocumentOID(splitWorkspace.activeId), undefined, "tab", splitWorkspace.activeId);
+            void openSplitDocument(getTabDocumentOID(tabID), undefined, "tab", tabID);
         }
     }
     activePane = targetPane;
+    tabWorkspace.assert();
     updateHistoryButtons();
     markActive();
     return true;
 }
+
+function bindTabPaneDropZone
 
 function bindTabPaneDropZone(element, targetPane) {
     if (!element || element.dataset.tabDropZone === targetPane) return;
@@ -1611,21 +1551,17 @@ function bindTabPaneDropZone(element, targetPane) {
 }
 
 function handleTabBarDrop(event, targetPane) {
-    if (!tabWorkspace.drag.tabId || !tabWorkspace.drag.pane || tabWorkspace.drag.pane === targetPane) return;
+    const drag = tabWorkspace.consumeDrag(targetPane);
+    if (!drag) return;
     event.preventDefault();
-    const tabID = tabWorkspace.drag.tabId;
-    const sourcePane = tabWorkspace.drag.pane;
-    const targetTab = event.target.closest(".doc-tab");
-    const targetTabID = targetTab && targetTab.closest(targetPane === "main" ? "#docTabs" : "#splitTabs")
-        ? targetTab.dataset.oid
-        : null;
-    const after = targetTab
-        ? event.clientX >= targetTab.getBoundingClientRect().left + targetTab.offsetWidth / 2
-        : false;
-    tabWorkspace.drag.tabId = null;
-    tabWorkspace.drag.pane = null;
-    moveTabBetweenPanes(tabID, sourcePane, targetPane, targetTabID, after);
+    const targetTab = event.target instanceof Element ? event.target.closest(".doc-tab") : null;
+    const targetStrip = targetPane === "main" ? $("docTabs") : $("splitTabs");
+    const targetTabID = targetTab && targetStrip.contains(targetTab) ? targetTab.dataset.oid : null;
+    const after = targetTab ? event.clientX >= targetTab.getBoundingClientRect().left + targetTab.offsetWidth / 2 : false;
+    moveTabBetweenPanes(drag.tabId, drag.pane, targetPane, targetTabID, after);
 }
+
+function renderTabs
 
 function renderTabs() {
     const bar = $("docTabs");
@@ -1730,20 +1666,12 @@ function renderTabs() {
 }
 
 function reorderTab(sourceOID, targetOID, after) {
-    if (!sourceOID || sourceOID === targetOID) return;
-    if (mainTabs.pinned.includes(sourceOID) !== mainTabs.pinned.includes(targetOID)) return;
-    const next = mainTabs.tabs.slice();
-    const sourceIndex = next.indexOf(sourceOID);
-    if (sourceIndex < 0) return;
-    next.splice(sourceIndex, 1);
-    const targetIndex = next.indexOf(targetOID);
-    if (targetIndex < 0) return;
-    next.splice(targetIndex + (after ? 1 : 0), 0, sourceOID);
-    mainTabs.tabs = next;
-    tabWorkspace.drag.tabId = null;
+    if (!tabWorkspace.reorder(sourceOID, "main", targetOID, after)) return;
     saveOpenTabs();
     renderTabs();
 }
+
+function togglePinnedTab
 
 function togglePinnedTab(oid) {
     if (!mainTabs.tabs.includes(oid)) return;
@@ -2021,10 +1949,10 @@ function showDoc(doc, base) {
 }
 
 function normalizeSplitTabOrder() {
-    const pinned = new Set(splitWorkspace.pinned);
-    splitWorkspace.tabs = [...splitWorkspace.tabs.filter((id) => pinned.has(id)), ...splitWorkspace.tabs.filter((id) => !pinned.has(id))];
-    splitWorkspace.pinned = splitWorkspace.pinned.filter((id) => splitWorkspace.tabs.includes(id));
+    tabWorkspace.normalizeOrder(splitWorkspace);
 }
+
+function saveSplitTabs
 
 function saveSplitTabs() {
     normalizeSplitTabOrder();
