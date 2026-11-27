@@ -211,6 +211,11 @@ func RecoverPlaintextMigration(dbPath string) error {
 	if err := removeDBFiles(dbPath + ".encrypted.tmp"); err != nil {
 		return fmt.Errorf("удаление незавершённой временной базы: %w", err)
 	}
+	if primaryEmpty {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("удаление пустой незавершённой базы %s: %w", dbPath, err)
+		}
+	}
 	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
 		if err := os.Remove(dbPath + suffix); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("удаление незавершённого файла %s: %w", dbPath+suffix, err)
