@@ -2282,7 +2282,7 @@ function showSplitDoc(doc) {
     $("splitDate").textContent = doc.UpdatedAt ? "Обновлено: " + new Date(doc.UpdatedAt).toLocaleString("ru-RU") : "";
     const path = doc.Url || (doc.UrlID ? "/doc/" + doc.UrlID : "");
     const link = $("splitDocLink");
-    const url = cachedApiURL && path ? cachedApiURL.replace(/\\/+$/, "") + path : "";
+    const url = cachedApiURL && path ? cachedApiURL.replace(/\/+$/, "") + path : "";
     link.href = url || "#";
     link.style.display = url ? "inline-flex" : "none";
     link.onclick = (event) => {
