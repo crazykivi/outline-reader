@@ -178,8 +178,14 @@ func removeDBFiles(path string) error {
 // RecoverPlaintextMigration restores the original database if a process stopped
 // after moving it aside but before installing the staged encrypted database.
 func RecoverPlaintextMigration(dbPath string) error {
-	if _, err := os.Stat(dbPath); err == nil {
-		return nil
+	primaryExists := false
+	primaryEmpty := false
+	if st, err := os.Stat(dbPath); err == nil {
+		primaryExists = true
+		primaryEmpty = st.Size() == 0
+		if !primaryEmpty || IsPlaintextDB(dbPath) {
+			return nil
+		}
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("проверка базы %s: %w", dbPath, err)
 	}
@@ -192,9 +198,12 @@ func RecoverPlaintextMigration(dbPath string) error {
 			return fmt.Errorf("проверка резервной базы %s: %w", backup, err)
 		}
 		if _, err := os.Stat(dbPath + ".encrypted.tmp"); err == nil {
-			return fmt.Errorf("основная база отсутствует, найден незавершённый зашифрованный файл %s", dbPath+".encrypted.tmp")
+			return fmt.Errorf("основная база отсутствует или пуста, найден незавершённый зашифрованный файл %s", dbPath+".encrypted.tmp")
 		} else if !os.IsNotExist(err) {
 			return fmt.Errorf("проверка временной базы: %w", err)
+		}
+		if primaryExists && primaryEmpty {
+			return nil
 		}
 		return nil
 	}
