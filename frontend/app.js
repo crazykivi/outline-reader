@@ -1394,7 +1394,7 @@ function createDuplicateTabID(oid) {
     let tabID;
     do {
         tabID = DUPLICATE_TAB_PREFIX + Date.now() + "_" + (++emptyTabSequence) + ":" + encodeURIComponent(oid);
-    } while (mainTabs.tabs.includes(tabID));
+    } while (mainTabs.tabs.includes(tabID) || splitWorkspace.tabs.includes(tabID));
     return tabID;
 }
 
@@ -1408,7 +1408,7 @@ function createEmptyTabID() {
     let oid;
     do {
         oid = EMPTY_TAB_PREFIX + Date.now() + "_" + (++emptyTabSequence);
-    } while (mainTabs.tabs.includes(oid));
+    } while (mainTabs.tabs.includes(oid) || splitWorkspace.tabs.includes(oid));
     return oid;
 }
 
@@ -1861,6 +1861,7 @@ async function openDocument(oid, query, source, targetTabID) {
 
         if (source === "tab") {
             targetTabID = targetTabID || oid;
+            if (!mainTabs.tabs.includes(targetTabID) && splitWorkspace.tabs.includes(targetTabID)) targetTabID = createDuplicateTabID(oid);
             const saved = mainTabs.histories.get(targetTabID);
             history = saved ? saved.history.slice() : [oid];
             historyIndex = saved ? saved.historyIndex : 0;
@@ -1874,9 +1875,9 @@ async function openDocument(oid, query, source, targetTabID) {
                 nextTabID = getTabDocumentOID(previousID) === oid ? previousID : createDuplicateTabID(oid);
             } else if (previousID && !isEmptyTab(previousID)) {
                 if (getTabDocumentOID(previousID) === oid) nextTabID = previousID;
-                else nextTabID = mainTabs.tabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid)
+                else nextTabID = mainTabs.tabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid) || splitWorkspace.tabs.includes(oid)
                     ? createDuplicateTabID(oid) : oid;
-            } else if (mainTabs.tabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid)) {
+            } else if (mainTabs.tabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid) || splitWorkspace.tabs.includes(oid)) {
                 nextTabID = createDuplicateTabID(oid);
             }
 
@@ -1953,7 +1954,7 @@ function saveSplitTabs() {
 function createSplitEmptyTabID() {
     let id;
     do { id = EMPTY_TAB_PREFIX + "split_" + Date.now() + "_" + (++emptyTabSequence); }
-    while (splitWorkspace.tabs.includes(id));
+    while (splitWorkspace.tabs.includes(id) || mainTabs.tabs.includes(id));
     return id;
 }
 
@@ -2305,9 +2306,10 @@ async function openSplitDocument(oid, query, source, targetTabID) {
         const previousID = splitWorkspace.activeId;
         if (source === "tab") {
             targetTabID = targetTabID || oid;
+            if (!splitWorkspace.tabs.includes(targetTabID) && mainTabs.tabs.includes(targetTabID)) targetTabID = createSplitDuplicateTabID(oid);
             if (isEmptyTab(targetTabID)) {
                 const emptyID = targetTabID;
-                targetTabID = splitWorkspace.tabs.some((id) => id !== emptyID && getTabDocumentOID(id) === oid)
+                targetTabID = splitWorkspace.tabs.some((id) => id !== emptyID && getTabDocumentOID(id) === oid) || mainTabs.tabs.includes(oid)
                     ? createSplitDuplicateTabID(oid) : oid;
                 const emptyPos = splitWorkspace.tabs.indexOf(emptyID);
                 if (emptyPos >= 0) splitWorkspace.tabs[emptyPos] = targetTabID;
@@ -2324,10 +2326,10 @@ async function openSplitDocument(oid, query, source, targetTabID) {
             let nextID = oid;
             const previousDocumentOID = getTabDocumentOID(previousID);
             if (previousID && isEmptyTab(previousID)) {
-                nextID = splitWorkspace.tabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid)
+                nextID = splitWorkspace.tabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid) || mainTabs.tabs.includes(oid)
                     ? createSplitDuplicateTabID(oid) : oid;
             } else if (previousID && previousDocumentOID === oid) nextID = previousID;
-            else if (splitWorkspace.tabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid)) nextID = createSplitDuplicateTabID(oid);
+            else if (splitWorkspace.tabs.some((id) => id !== previousID && getTabDocumentOID(id) === oid) || mainTabs.tabs.includes(oid)) nextID = createSplitDuplicateTabID(oid);
             if (previousID && previousID !== nextID) {
                 const saved = splitWorkspace.histories.get(previousID) || { history: splitHistory.slice(), historyIndex: splitHistoryIndex };
                 splitWorkspace.histories.delete(previousID);
