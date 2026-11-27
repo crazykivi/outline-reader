@@ -99,12 +99,25 @@ async function loadPrefs() {
     mainTabs.pinned = [...new Set(mainTabs.pinned.filter((id) => mainTabs.tabs.includes(id)))];
     mainTabs.activeId = prefGet("activeTabOID", "") || null;
     if (mainTabs.activeId && !mainTabs.tabs.includes(mainTabs.activeId)) mainTabs.activeId = mainTabs.tabs[mainTabs.tabs.length - 1] || null;
+    const storedTabState = JSON.stringify({
+        main: [mainTabs.tabs, mainTabs.pinned, mainTabs.activeId],
+        split: [splitWorkspace.tabs, splitWorkspace.pinned, splitWorkspace.activeId],
+    });
     tabWorkspace.normalize(getTabDocumentOID, isEmptyTab, (pane, id, oid, empty) => empty ? createSplitEmptyTabID() : createSplitDuplicateTabID(oid));
+    const normalizedTabState = JSON.stringify({
+        main: [mainTabs.tabs, mainTabs.pinned, mainTabs.activeId],
+        split: [splitWorkspace.tabs, splitWorkspace.pinned, splitWorkspace.activeId],
+    });
+    const tabStateNeedsSave = storedTabState !== normalizedTabState;
     tabsRestored = false;
     const w = parseInt(prefGet("sideWidth", "300"), 10);
     const sidebar = document.querySelector(".sidebar");
     if (sidebar && w >= 220 && w <= 480) { sidebar.style.width = w + "px"; setSideWidth(w); }
     prefsReady = true;
+    if (tabStateNeedsSave) {
+        saveOpenTabs();
+        saveSplitTabs();
+    }
     if (Object.keys(remote).length === 0) {
         PREF_KEYS.forEach((k) => { const v = localStorage.getItem("or." + k); if (v !== null) prefsDirty.set(k, v); });
         await flushPrefs();
