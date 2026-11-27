@@ -156,6 +156,8 @@ let splitTabScrollPositions = new Map();
 let splitHistory = [];
 let splitHistoryIndex = -1;
 let splitWidth = 50;
+let menuAnchor = null;
+let findPane = "main";
 
 const palette = { open: false, items: [], sel: 0, timer: null };
 
@@ -341,11 +343,16 @@ function bindUI() {
 
     // меню "три точки"
     $("menuBtn").addEventListener("click", () => {
-        uiIsOpen($("docMenu")) ? closeMenu() : openMenu();
+        activePane = "main";
+        uiIsOpen($("docMenu")) ? closeMenu() : openMenu($("menuBtn"));
+    });
+    $("splitMenuBtn").addEventListener("click", () => {
+        activePane = "split";
+        uiIsOpen($("docMenu")) ? closeMenu() : openMenu($("splitMenuBtn"));
     });
     document.addEventListener("mousedown", (e) => {
         if (!uiIsOpen($("docMenu"))) return;
-        if ($("docMenu").contains(e.target) || $("menuBtn").contains(e.target)) return;
+        if ($("docMenu").contains(e.target) || $("menuBtn").contains(e.target) || $("splitMenuBtn").contains(e.target)) return;
         closeMenu();
     });
     document.addEventListener("mousedown", (e) => {
@@ -830,13 +837,14 @@ async function showAbout() {
     uiShow($("aboutModal"), "flex");
 }
 
-function openMenu() {
+function openMenu(anchor) {
     closeSideMenu();
-    const noDoc = $("docViewer").style.display === "none";
+    menuAnchor = anchor || $("menuBtn");
+    const noDoc = activePane === "split" ? $("splitDocViewer").style.display === "none" : $("docViewer").style.display === "none";
     $("menuFind").classList.toggle("disabled", noDoc);
     const menu = $("docMenu");
     uiShow(menu, "block");
-    const r = $("menuBtn").getBoundingClientRect();
+    const r = menuAnchor.getBoundingClientRect();
     const mh = menu.offsetHeight;
     let top = r.bottom + 8;
     if (top + mh > window.innerHeight - 8) {
@@ -850,6 +858,7 @@ function openMenu() {
 function closeMenu(instant) {
     if (instant) uiHideNow($("docMenu"));
     else uiHide($("docMenu"));
+    menuAnchor = null;
 }
 
 function ensureContextMenu() {
@@ -2701,13 +2710,14 @@ function highlightInto(el, text, q) {
 
 /* ---------- Поиск в документе ---------- */
 
-function findRoots() { return [$("docTitle"), $("docContent")]; }
+function findRoots() { return findPane === "split" ? [$("splitTitle"), $("splitContent")] : [$("docTitle"), $("docContent")]; }
 
 function findSignature() {
     return $("findInput").value + "\u0000" + find.caseSensitive + "\u0000" + find.regex;
 }
 
 function openFindBar(prefill) {
+    findPane = activePane === "split" && splitViewEnabled ? "split" : "main";
     find.open = true;
     uiShow($("findBar"), "flex");
     if (prefill !== undefined) $("findInput").value = prefill;
@@ -2749,7 +2759,8 @@ function runFind() {
     const input = $("findInput");
     input.classList.remove("invalid");
     const q = input.value;
-    if (!q || $("docViewer").style.display === "none") { updateFindCount(); return; }
+    const hasDoc = findPane === "split" ? $("splitDocViewer").style.display !== "none" : $("docViewer").style.display !== "none";
+    if (!q || !hasDoc) { updateFindCount(); return; }
 
     let re;
     try { re = buildRegex(q); }
