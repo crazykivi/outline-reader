@@ -206,7 +206,7 @@ body.resizing { user-select: none; cursor: col-resize; }
 .split-pane .doc-tab-add { width: 24px; min-width: 24px; }
 @media (max-width: 900px) {
     .viewer-wrap.split-active { overflow-x: auto; }
-    .viewer-wrap.split-active .viewer { flex: 0 0 50%; min-width: 280px; }
+    .viewer-wrap.split-active .viewer { flex: 0 0 calc(100% - var(--split-width, 50%)); min-width: 280px; }
     .viewer-wrap.split-active .split-pane { flex: 0 0 var(--split-width, 50%); min-width: 280px; }
 }
 
