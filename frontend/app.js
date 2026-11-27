@@ -2020,6 +2020,7 @@ function toggleSplitPinnedTab(id) {
 }
 
 function createSplitTab() {
+    splitOpenRequestID++;
     saveActiveSplitScroll();
     const id = createSplitEmptyTabID();
     splitTabs.push(id);
@@ -2042,6 +2043,7 @@ async function activateSplitTab(id) {
     activePane = "split";
     splitActiveTabOID = id;
     if (isEmptyTab(id)) {
+        splitOpenRequestID++;
         splitCurrentOID = null;
         splitDocumentOID = null;
         splitDocumentUpdated = "";
@@ -2066,6 +2068,7 @@ function closeSplitTab(id) {
     splitTabHistories.delete(id);
     splitTabScrollPositions.delete(id);
     if (splitActiveTabOID === id) {
+        splitOpenRequestID++;
         splitActiveTabOID = splitTabs[Math.min(pos, splitTabs.length - 1)] || null;
         if (splitActiveTabOID) {
             saveSplitTabs();
@@ -2102,6 +2105,7 @@ function closeUnpinnedSplitTabs() {
     const activeClosed = splitActiveTabOID && !splitPinnedTabs.includes(splitActiveTabOID);
     splitTabs = remaining;
     if (activeClosed) {
+        splitOpenRequestID++;
         splitActiveTabOID = remaining[remaining.length - 1] || null;
         if (splitActiveTabOID && !isEmptyTab(splitActiveTabOID)) {
             void openSplitDocument(getTabDocumentOID(splitActiveTabOID), undefined, "tab", splitActiveTabOID);
