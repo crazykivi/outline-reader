@@ -588,8 +588,6 @@ function bindUI() {
     $("favBtn").addEventListener("click", toggleFav);
     $("splitViewBtn").addEventListener("click", toggleSplitView);
     $("splitClose").addEventListener("click", closeSplitView);
-    $("splitBackBtn").addEventListener("click", goBackSplit);
-    $("splitForwardBtn").addEventListener("click", goForwardSplit);
     const activateSplitPane = () => { activePane = "split"; updateHistoryButtons(); markActive(); };
     $("splitPane").addEventListener("pointerdown", activateSplitPane);
     $("splitPane").addEventListener("wheel", activateSplitPane, { passive: true });
@@ -1386,10 +1384,12 @@ function goForward() {
 
 function updateHistoryButtons() {
     const split = activePane === "split" && splitViewEnabled;
-    $("backBtn").disabled = split ? true : historyIndex <= 0;
-    $("forwardBtn").disabled = split ? true : historyIndex >= history.length - 1;
-    $("splitBackBtn").disabled = splitHistoryIndex <= 0;
-    $("splitForwardBtn").disabled = splitHistoryIndex >= splitHistory.length - 1;
+    const mainPane = document.querySelector(".viewer");
+    const splitPane = $("splitPane");
+    mainPane.classList.toggle("pane-inactive", split);
+    splitPane.classList.toggle("pane-inactive", splitViewEnabled && !split);
+    $("backBtn").disabled = split ? splitHistoryIndex <= 0 : historyIndex <= 0;
+    $("forwardBtn").disabled = split ? splitHistoryIndex >= splitHistory.length - 1 : historyIndex >= history.length - 1;
 }
 
 function isEmptyTab(oid) {
