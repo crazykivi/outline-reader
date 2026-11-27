@@ -227,6 +227,32 @@ class TabWorkspace {
         return { activeWasClosed, activeId: pane.activeId, removed };
     }
 
+    mergePane(sourceName, targetName, createReplacement) {
+        const source = this.getPane(sourceName);
+        const target = this.getPane(targetName);
+        if (!source || !target || sourceName === targetName) return null;
+        const idMap = new Map();
+        for (const oldId of source.tabs) {
+            let nextId = oldId;
+            if (target.tabs.includes(nextId)) nextId = createReplacement(oldId);
+            idMap.set(oldId, nextId);
+            target.tabs.push(nextId);
+            if (source.pinned.includes(oldId)) target.pinned.push(nextId);
+            if (source.histories.has(oldId)) target.histories.set(nextId, source.histories.get(oldId));
+            if (source.scrollPositions.has(oldId)) target.scrollPositions.set(nextId, source.scrollPositions.get(oldId));
+        }
+        if (source.activeId && idMap.has(source.activeId)) target.activeId = idMap.get(source.activeId);
+        source.tabs = [];
+        source.pinned = [];
+        source.activeId = null;
+        source.histories.clear();
+        source.scrollPositions.clear();
+        this.normalizeOrder(target);
+        this.revision++;
+        this.assert();
+        return target.activeId;
+    }
+
     selectDocumentTab({ paneName, documentOID, source, targetTabId, getDocumentOID, isEmptyTab, createDuplicate }) {
         const pane = this.getPane(paneName);
         const other = this.getPane(paneName === "main" ? "split" : "main");
