@@ -556,7 +556,7 @@ function bindUI() {
     $("splitViewBtn").addEventListener("click", toggleSplitView);
     $("splitClose").addEventListener("click", closeSplitView);
     $("docTree").addEventListener("contextmenu", (event) => {
-        const row = event.target.closest(".tree-row[data-oid]");
+        const row = event.target.closest(".tree-row[data-oid], .search-hit[data-oid]");
         if (!row || !$("docTree").contains(row)) return;
         event.preventDefault();
         event.stopPropagation();
@@ -2225,6 +2225,7 @@ async function runSearch(q) {
         for (const doc of results) {
             const item = document.createElement("div");
             item.className = "search-hit";
+            item.dataset.oid = doc.OutlineID;
             const t = document.createElement("div");
             t.className = "hit-title";
             highlightInto(t, doc.Title || "Без названия", q);
