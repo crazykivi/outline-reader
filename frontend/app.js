@@ -1053,7 +1053,7 @@ async function loadTree() {
         buildIndex();
         renderTabs();
         await refreshFavorites();
-        if (splitViewEnabled && splitDocumentOID) await restoreSplitDocument();
+        if (splitViewEnabled && splitDocumentOID && !splitDocumentUpdated) await restoreSplitDocument();
         renderSplitView();
         if (currentOID) expandAncestors(currentOID);
         renderTree();
@@ -1809,6 +1809,95 @@ function showDoc(doc, base) {
     document.querySelector(".viewer").scrollTop = 0;
 }
 
+function renderSplitView() {
+    const wrap = document.querySelector(".viewer-wrap");
+    const pane = $("splitPane");
+    const button = $("splitViewBtn");
+    wrap.classList.toggle("split-active", splitViewEnabled);
+    pane.style.display = splitViewEnabled ? "flex" : "none";
+    button.classList.toggle("active", splitViewEnabled);
+    button.title = splitViewEnabled ? "Скрыть вторую панель" : "Показать вторую панель";
+    button.setAttribute("aria-label", button.title);
+    const hasDocument = !!splitDocumentOID && !!splitDocumentUpdated;
+    $("splitEmpty").style.display = hasDocument ? "none" : "flex";
+    $("splitScroll").style.display = hasDocument ? "block" : "none";
+}
+
+function toggleSplitView() {
+    splitViewEnabled = !splitViewEnabled;
+    prefSet("splitView", splitViewEnabled ? "1" : "0");
+    renderSplitView();
+}
+
+function closeSplitView() {
+    splitViewEnabled = false;
+    splitDocumentOID = null;
+    splitDocumentUpdated = "";
+    prefSet("splitView", "0");
+    prefSet("splitDocumentOID", "");
+    $("splitContent").innerHTML = "";
+    $("splitTitle").textContent = "Вторая панель";
+    $("splitDate").textContent = "";
+    $("splitScroll").scrollTop = 0;
+    renderSplitView();
+}
+
+async function openSplitDocument(oid) {
+    if (!oid) return;
+    try {
+        const doc = await go().GetDocument(oid);
+        splitDocumentOID = doc.OutlineID;
+        splitViewEnabled = true;
+        prefSet("splitDocumentOID", splitDocumentOID);
+        prefSet("splitView", "1");
+        showSplitDoc(doc);
+        renderSplitView();
+    } catch (err) {
+        showToast("Ошибка", "Не удалось открыть документ справа: " + err, true);
+    }
+}
+
+async function restoreSplitDocument() {
+    try {
+        const doc = await go().GetDocument(splitDocumentOID);
+        showSplitDoc(doc);
+    } catch (err) {
+        splitDocumentOID = null;
+        splitDocumentUpdated = "";
+        prefSet("splitDocumentOID", "");
+    }
+}
+
+function showSplitDoc(doc) {
+    splitDocumentOID = doc.OutlineID;
+    splitDocumentUpdated = doc.UpdatedAt || "";
+    $("splitTitle").textContent = doc.Title || "Без названия";
+    $("splitTitle").title = doc.Title || "Без названия";
+    $("splitDate").textContent = doc.UpdatedAt ? "Обновлено: " + new Date(doc.UpdatedAt).toLocaleString("ru-RU") : "";
+    $("splitContent").innerHTML = "";
+    renderMarkdown(doc.Text || "", $("splitContent"));
+    $("splitScroll").scrollTop = 0;
+    renderSplitView();
+}
+
+async function refreshSplitDocument() {
+    if (!splitViewEnabled || !splitDocumentOID) return;
+    try {
+        const doc = await go().GetDocument(splitDocumentOID);
+        if ((doc.UpdatedAt || "") === splitDocumentUpdated) return;
+        const scroll = $("splitScroll").scrollTop;
+        showSplitDoc(doc);
+        $("splitScroll").scrollTop = scroll;
+    } catch (err) {
+        splitDocumentOID = null;
+        splitDocumentUpdated = "";
+        prefSet("splitDocumentOID", "");
+        $("splitContent").innerHTML = "";
+        $("splitTitle").textContent = "Документ недоступен";
+        renderSplitView();
+    }
+}
+
 async function refreshCurrentDoc() {
     if (!currentOID) return;
     let doc;
@@ -2315,6 +2404,7 @@ async function syncNow() {
         await loadTree();
         updateStatus();
         await refreshCurrentDoc();
+        await refreshSplitDocument();
     } catch (err) {
         const msg = String(err);
         if (!msg.includes("уже выполняется")) {
