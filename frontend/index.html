@@ -484,14 +484,7 @@
                             <span id="syncDelta" class="sync-delta"></span>
                         </span>
                         <div class="sidebar-top-actions">
-                            <button id="collapseAllBtn" class="tree-action" type="button" data-action="collapse"
-                                title="Свернуть все категории и вложенные документы" aria-label="Свернуть категории">
-                                <svg class="tree-action-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
-                                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                                    aria-hidden="true">
-                                    <path d="m7 14 5-5 5 5M7 20l5-5 5 5"></path>
-                                </svg>
-                            </button>
+
                             <button id="sidebarAutoHideBtn" class="tree-action" type="button" aria-pressed="false"
                                 title="Автоматически скрывать боковую панель" aria-label="Скрывать боковую панель">
                                 <svg class="sidebar-toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -504,7 +497,19 @@
                             </button>
                         </div>
                     </div>
-                    <div id="docTree" class="doc-tree"></div>
+                    <div class="doc-tree-container">
+                        <div class="doc-tree-toolbar">
+            <button id="collapseAllBtn" class="tree-action" type="button" data-action="collapse"
+                title="Свернуть все категории и вложенные документы" aria-label="Свернуть категории">
+                <svg class="tree-action-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                    aria-hidden="true">
+                    <path d="m7 14 5-5 5 5M7 20l5-5 5 5"></path>
+                </svg>
+            </button>
+                        </div>
+                        <div id="docTree" class="doc-tree"></div>
+                    </div>
                     <div class="sidebar-lower">
                         <button id="sideAccountBtn" class="side-account" type="button" aria-haspopup="menu"
                             aria-expanded="false" aria-controls="sideMenu" title="Меню">
