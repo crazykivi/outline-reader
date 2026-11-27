@@ -111,8 +111,6 @@ async function loadPrefs() {
     }
 }
 
-let fullWidth
-
 let fullWidth = prefGet("fullWidth") === "1";
 let splitFullWidth = prefGet("splitFullWidth") === "1";
 let tocOpen = prefGet("tocOpen") === "1";
@@ -1440,8 +1438,6 @@ function normalizeTabOrder() {
     tabWorkspace.normalizeOrder(mainTabs);
 }
 
-function saveOpenTabs
-
 function saveOpenTabs() {
     normalizeTabOrder();
     prefSet("openTabs", JSON.stringify(mainTabs.tabs));
@@ -1537,8 +1533,6 @@ function moveTabBetweenPanes(tabID, sourcePane, targetPane, targetTabID, after) 
     return true;
 }
 
-function bindTabPaneDropZone
-
 function bindTabPaneDropZone(element, targetPane) {
     if (!element || element.dataset.tabDropZone === targetPane) return;
     element.dataset.tabDropZone = targetPane;
@@ -1560,8 +1554,6 @@ function handleTabBarDrop(event, targetPane) {
     const after = targetTab ? event.clientX >= targetTab.getBoundingClientRect().left + targetTab.offsetWidth / 2 : false;
     moveTabBetweenPanes(drag.tabId, drag.pane, targetPane, targetTabID, after);
 }
-
-function renderTabs
 
 function renderTabs() {
     const bar = $("docTabs");
@@ -1670,8 +1662,6 @@ function reorderTab(sourceOID, targetOID, after) {
     saveOpenTabs();
     renderTabs();
 }
-
-function togglePinnedTab
 
 function togglePinnedTab(oid) {
     if (!mainTabs.tabs.includes(oid)) return;
@@ -1951,8 +1941,6 @@ function showDoc(doc, base) {
 function normalizeSplitTabOrder() {
     tabWorkspace.normalizeOrder(splitWorkspace);
 }
-
-function saveSplitTabs
 
 function saveSplitTabs() {
     normalizeSplitTabOrder();
