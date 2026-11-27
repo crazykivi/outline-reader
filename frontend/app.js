@@ -594,8 +594,7 @@ function bindUI() {
     const activateSplitPane = () => { activePane = "split"; updateHistoryButtons(); markActive(); };
     $("splitPane").addEventListener("pointerdown", activateSplitPane);
     $("splitPane").addEventListener("wheel", activateSplitPane, { passive: true });
-    $("splitPane").addEventListener("focusin", activateSplitPane);
-    $("splitTabs").addEventListener("wheel", (event) => {
+undefined
         const bar = $("splitTabs");
         if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) { bar.scrollLeft += event.deltaY; event.preventDefault(); }
     }, { passive: false });
@@ -1597,13 +1596,7 @@ function moveTabBetweenPanes(tabID, sourcePane, targetPane, targetTabID, after) 
     return true;
 }
 
-function handleTabBarDrop(event, targetPane) {
-    if (!draggedTabOID || !draggedTabPane || draggedTabPane === targetPane) return;
-    event.preventDefault();
-    moveTabBetweenPanes(draggedTabOID, draggedTabPane, targetPane, null, false);
-    draggedTabOID = null;
-    draggedTabPane = null;
-}
+undefined
 
 function renderTabs() {
     const bar = $("docTabs");
@@ -1680,15 +1673,7 @@ function renderTabs() {
             tab.classList.toggle("drop-after", !before);
         });
         tab.addEventListener("dragleave", () => tab.classList.remove("drop-before", "drop-after"));
-        tab.addEventListener("drop", (event) => {
-            if (!draggedTabOID) return;
-            event.preventDefault();
-            const after = event.clientX >= tab.getBoundingClientRect().left + tab.offsetWidth / 2;
-            if (draggedTabPane === "split") moveTabBetweenPanes(draggedTabOID, "split", "main", tabID, after);
-            else if (pinnedTabs.includes(draggedTabOID) === isPinned) reorderTab(draggedTabOID, tabID, after);
-            draggedTabOID = null;
-            draggedTabPane = null;
-        });
+undefined
         tab.addEventListener("dragend", () => {
             draggedTabOID = null;
             draggedTabPane = null;
@@ -1706,13 +1691,7 @@ function renderTabs() {
     add.setAttribute("aria-label", "Открыть новую вкладку");
     add.textContent = "+";
     add.addEventListener("click", createNewTab);
-    bar.addEventListener("dragover", (event) => {
-        if (draggedTabPane !== "split") return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
-    });
-    bar.addEventListener("drop", (event) => handleTabBarDrop(event, "main"));
-    bar.appendChild(add);
+undefined
 }
 
 function reorderTab(sourceOID, targetOID, after) {
@@ -2097,28 +2076,7 @@ function renderSplitTabs() {
             tab.classList.toggle("drop-after", !before);
         });
         tab.addEventListener("dragleave", () => tab.classList.remove("drop-before", "drop-after"));
-        tab.addEventListener("drop", (event) => {
-            if (!draggedTabOID) return;
-            event.preventDefault();
-            const after = event.clientX >= tab.getBoundingClientRect().left + tab.offsetWidth / 2;
-            if (draggedTabPane === "main") {
-                moveTabBetweenPanes(draggedTabOID, "main", "split", tabID, after);
-                draggedTabOID = null;
-                draggedTabPane = null;
-                return;
-            }
-            if (splitPinnedTabs.includes(draggedTabOID) !== pinned) return;
-            const source = splitTabs.indexOf(draggedTabOID);
-            const target = splitTabs.indexOf(tabID);
-            if (source < 0 || target < 0) return;
-            const moved = splitTabs.splice(source, 1)[0];
-            const nextTarget = splitTabs.indexOf(tabID);
-            splitTabs.splice(nextTarget + (after ? 1 : 0), 0, moved);
-            draggedTabOID = null;
-            draggedTabPane = null;
-            saveSplitTabs();
-            renderSplitTabs();
-        });
+undefined
         tab.addEventListener("dragend", () => {
             draggedTabOID = null;
             draggedTabPane = null;
@@ -2134,13 +2092,7 @@ function renderSplitTabs() {
     add.setAttribute("aria-label", "Открыть новую вкладку справа");
     add.textContent = "+";
     add.addEventListener("click", createSplitTab);
-    bar.addEventListener("dragover", (event) => {
-        if (draggedTabPane !== "main") return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
-    });
-    bar.addEventListener("drop", (event) => handleTabBarDrop(event, "split"));
-    bar.appendChild(add);
+undefined
 }
 
 function splitTabContextMenu(tab) {
