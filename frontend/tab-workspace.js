@@ -163,6 +163,133 @@ class TabWorkspace {
         pane.tabs = [...pane.tabs.filter((id) => pinned.has(id)), ...pane.tabs.filter((id) => !pinned.has(id))];
     }
 
+    createTab(paneName, tabId) {
+        const pane = this.getPane(paneName);
+        if (!pane || !tabId || this.ownerOf(tabId)) return false;
+        pane.tabs.push(tabId);
+        pane.activeId = tabId;
+        this.revision++;
+        this.assert();
+        return true;
+    }
+
+    activateTab(paneName, tabId) {
+        const pane = this.getPane(paneName);
+        if (!pane || this.ownerOf(tabId) !== paneName) return false;
+        pane.activeId = tabId;
+        this.revision++;
+        this.assert();
+        return true;
+    }
+
+    togglePinned(paneName, tabId) {
+        const pane = this.getPane(paneName);
+        if (!pane || this.ownerOf(tabId) !== paneName) return false;
+        pane.pinned = pane.pinned.includes(tabId)
+            ? pane.pinned.filter((id) => id !== tabId)
+            : [...pane.pinned, tabId];
+        this.normalizeOrder(pane);
+        this.revision++;
+        this.assert();
+        return true;
+    }
+
+    closeTab(paneName, tabId) {
+        const pane = this.getPane(paneName);
+        if (!pane || this.ownerOf(tabId) !== paneName) return null;
+        const index = pane.tabs.indexOf(tabId);
+        const wasActive = pane.activeId === tabId;
+        pane.tabs.splice(index, 1);
+        pane.pinned = pane.pinned.filter((id) => id !== tabId);
+        pane.histories.delete(tabId);
+        pane.scrollPositions.delete(tabId);
+        if (wasActive) pane.activeId = pane.tabs[Math.min(index, pane.tabs.length - 1)] || null;
+        this.revision++;
+        this.assert();
+        return { wasActive, activeId: pane.activeId, index };
+    }
+
+    closeUnpinned(paneName) {
+        const pane = this.getPane(paneName);
+        if (!pane) return null;
+        const remaining = pane.tabs.filter((id) => pane.pinned.includes(id));
+        if (remaining.length === pane.tabs.length) return null;
+        const removed = pane.tabs.filter((id) => !pane.pinned.includes(id));
+        const activeWasClosed = !!pane.activeId && !pane.pinned.includes(pane.activeId);
+        for (const id of removed) {
+            pane.histories.delete(id);
+            pane.scrollPositions.delete(id);
+        }
+        pane.tabs = remaining;
+        if (activeWasClosed) pane.activeId = remaining[remaining.length - 1] || null;
+        this.revision++;
+        this.assert();
+        return { activeWasClosed, activeId: pane.activeId, removed };
+    }
+
+    selectDocumentTab({ paneName, documentOID, source, targetTabId, getDocumentOID, isEmptyTab, createDuplicate }) {
+        const pane = this.getPane(paneName);
+        const other = this.getPane(paneName === "main" ? "split" : "main");
+        if (!pane || !other || !documentOID) return null;
+
+        const previousId = pane.activeId;
+        const previousDocumentOID = getDocumentOID(previousId);
+        let nextId;
+
+        if (source === "tab") {
+            nextId = targetTabId || documentOID;
+            if (isEmptyTab(nextId)) {
+                const emptyId = nextId;
+                const duplicateInPane = pane.tabs.some((id) => id !== emptyId && getDocumentOID(id) === documentOID);
+                nextId = duplicateInPane || other.tabs.includes(documentOID) ? createDuplicate(documentOID) : documentOID;
+                const position = pane.tabs.indexOf(emptyId);
+                if (position >= 0) pane.tabs[position] = nextId;
+                else if (!pane.tabs.includes(nextId)) pane.tabs.push(nextId);
+                if (pane.pinned.includes(emptyId)) pane.pinned = pane.pinned.map((id) => id === emptyId ? nextId : id);
+                pane.histories.delete(emptyId);
+                pane.scrollPositions.delete(emptyId);
+            } else if (this.ownerOf(nextId) && this.ownerOf(nextId) !== paneName) {
+                nextId = createDuplicate(documentOID);
+            }
+            if (!pane.tabs.includes(nextId)) pane.tabs.push(nextId);
+        } else {
+            if (source === "navigate" && previousId && !isEmptyTab(previousId)) {
+                nextId = previousDocumentOID === documentOID ? previousId : createDuplicate(documentOID);
+            } else if (previousId && !isEmptyTab(previousId)) {
+                if (previousDocumentOID === documentOID) nextId = previousId;
+                else {
+                    const duplicateInPane = pane.tabs.some((id) => id !== previousId && getDocumentOID(id) === documentOID);
+                    nextId = duplicateInPane || other.tabs.includes(documentOID) ? createDuplicate(documentOID) : documentOID;
+                }
+            } else {
+                const duplicateInPane = pane.tabs.some((id) => id !== previousId && getDocumentOID(id) === documentOID);
+                nextId = duplicateInPane || other.tabs.includes(documentOID) ? createDuplicate(documentOID) : documentOID;
+            }
+
+            if (this.ownerOf(nextId) && this.ownerOf(nextId) !== paneName) nextId = createDuplicate(documentOID);
+            if (previousId && previousId !== nextId) {
+                const savedHistory = pane.histories.get(previousId);
+                const savedScroll = pane.scrollPositions.get(previousId);
+                const position = pane.tabs.indexOf(previousId);
+                if (position >= 0) pane.tabs[position] = nextId;
+                else if (!pane.tabs.includes(nextId)) pane.tabs.push(nextId);
+                if (pane.pinned.includes(previousId)) pane.pinned = pane.pinned.map((id) => id === previousId ? nextId : id);
+                pane.histories.delete(previousId);
+                pane.scrollPositions.delete(previousId);
+                if (savedHistory) pane.histories.set(nextId, savedHistory);
+                if (savedScroll !== undefined) pane.scrollPositions.set(nextId, savedScroll);
+            } else if (!pane.tabs.includes(nextId)) {
+                pane.tabs.push(nextId);
+            }
+        }
+
+        pane.activeId = nextId;
+        this.normalizeOrder(pane);
+        this.revision++;
+        this.assert();
+        return { previousId, previousDocumentOID, tabId: nextId };
+    }
+
     assert() {
         const all = [...this.main.tabs, ...this.split.tabs];
         if (new Set(all).size !== all.length) throw new Error("TabWorkspace invariant: tab ID belongs to more than one pane");
