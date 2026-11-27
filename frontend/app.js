@@ -2171,6 +2171,7 @@ function toggleSplitView() {
 
 function closeSplitView() {
     splitOpenRequestID++;
+    if (find.open && findPane === "split") closeFindBar();
     splitViewEnabled = false;
     const transferred = [];
     const idMap = new Map();
@@ -2266,6 +2267,7 @@ async function openSplitDocument(oid, query, source, targetTabID) {
         renderSplitView();
         markActive();
         if (query) openFindBar(query);
+        else if (find.open && findPane === "split") runFind();
     } catch (err) {
         if (requestID === splitOpenRequestID) showToast("Ошибка", "Не удалось открыть документ справа: " + err, true);
     }
@@ -2308,6 +2310,7 @@ async function refreshSplitDocument() {
         const scroll = $("splitDocViewer").scrollTop;
         showSplitDoc(doc);
         $("splitDocViewer").scrollTop = scroll;
+        if (find.open && findPane === "split") runFind();
     } catch (err) {
         if (requestID !== splitOpenRequestID || splitDocumentOID !== oid) return;
         splitDocumentOID = null;
